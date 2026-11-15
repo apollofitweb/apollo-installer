@@ -54,9 +54,10 @@ const GLOBAL_ALLOWLIST = new Set<string>([
   'netlify.siteId',
   'netlify.authToken',
   'installer.jwtSigningSecret',
+  'supabase.accessToken',
 ]);
 
-function assertGlobalKey(key: string): asserts key is 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' {
+function assertGlobalKey(key: string): asserts key is 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken' {
   if (!GLOBAL_ALLOWLIST.has(key)) {
     throw new Error(`Global key not in allowlist: ${key}. Allowed: ${Array.from(GLOBAL_ALLOWLIST).join(', ')}`);
   }
@@ -245,7 +246,7 @@ export class InMemorySecretStore implements SecretStore {
     return this.store.global[key].metadata;
   }
 
-  async deleteGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret', expectedVersion: number): Promise<void> {
+  async deleteGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', expectedVersion: number): Promise<void> {
     assertGlobalKey(key);
     const current = this.store.global[key];
 
