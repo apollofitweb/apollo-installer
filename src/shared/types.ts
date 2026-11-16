@@ -187,9 +187,9 @@ export interface DeploymentConfig {
 
 // Adapter factory interface
 export interface AdapterFactory {
-  createSupabaseAdapter(config: Record<string, unknown>): SupabaseAdapter;
-  createRenderAdapter(config: Record<string, unknown>): RenderAdapter;
-  createNetlifyAdapter(config: Record<string, unknown>): NetlifyAdapter;
+  createSupabaseAdapter(config: Record<string, unknown>): SupabaseAdapter | Promise<SupabaseAdapter>;
+  createRenderAdapter(config: Record<string, unknown>): RenderAdapter | Promise<RenderAdapter>;
+  createNetlifyAdapter(config: Record<string, unknown>): NetlifyAdapter | Promise<NetlifyAdapter>;
 }
 
 // Base adapter interface

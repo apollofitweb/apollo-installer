@@ -37,4 +37,4 @@ prisma/migrations/
 # Temporary files
 *.tmp
 *.temp
-.tmp/
+.tmp/tests/sql/

@@ -10,11 +10,13 @@ import type {
   AdapterFactory,
 } from '../shared/types.js';
 import { deploymentRepository } from '../persistence/deployment.repository.js';
-import { createAdapterFactory, type SupabaseAdapter, type RenderAdapter, type NetlifyAdapter } from '../adapters/index.js';
+import { createAdapterFactory, createMockAdapterFactory, type SupabaseAdapter, type RenderAdapter, type NetlifyAdapter } from '../adapters/index.js';
 import { createChildLogger } from '../shared/logger.js';
 import { DeploymentError, StateTransitionError } from '../shared/errors.js';
 import { DEPLOYMENT_STEPS } from '../shared/types.js';
 import { createSecretStore } from '../secrets/index.js';
+import { createDurableSecretStore } from '../secrets/index.js';
+import { PrismaClient } from '@prisma/client';
 
 export interface DeploymentEngineConfig {
   adapterFactory: AdapterFactory;
@@ -28,9 +30,10 @@ export class DeploymentEngine {
   private secretStore: ReturnType<typeof createSecretStore>;
   private maxRetries: number;
   private retryDelayMs: number;
-  private supabaseAdapter: SupabaseAdapter = null as any;
-  private renderAdapter: RenderAdapter = null as any;
-  private netlifyAdapter: NetlifyAdapter = null as any;
+  private supabaseAdapter: SupabaseAdapter | null = null;
+  private renderAdapter: RenderAdapter | null = null;
+  private netlifyAdapter: NetlifyAdapter | null = null;
+  private supabaseAdapterPromise: Promise<SupabaseAdapter> | null = null;
 
   constructor(config: DeploymentEngineConfig) {
     this.adapterFactory = config.adapterFactory;
@@ -39,23 +42,31 @@ export class DeploymentEngine {
     this.retryDelayMs = config.retryDelayMs ?? 5000;
   }
 
-  private getSupabaseAdapter(): SupabaseAdapter {
-    if (!this.supabaseAdapter) {
-      this.supabaseAdapter = this.adapterFactory.createSupabaseAdapter({});
+  private async getSupabaseAdapter(): Promise<SupabaseAdapter> {
+    if (this.supabaseAdapter) {
+      return this.supabaseAdapter;
     }
+    if (this.supabaseAdapterPromise) {
+      return this.supabaseAdapterPromise;
+    }
+    const result = this.adapterFactory.createSupabaseAdapter({});
+    this.supabaseAdapterPromise = Promise.resolve(result);
+    this.supabaseAdapter = await this.supabaseAdapterPromise;
     return this.supabaseAdapter;
   }
 
-  private getRenderAdapter(): RenderAdapter {
+  private async getRenderAdapter(): Promise<RenderAdapter> {
     if (!this.renderAdapter) {
-      this.renderAdapter = this.adapterFactory.createRenderAdapter({});
+      const result = this.adapterFactory.createRenderAdapter({});
+      this.renderAdapter = await Promise.resolve(result);
     }
     return this.renderAdapter;
   }
 
-  private getNetlifyAdapter(): NetlifyAdapter {
+  private async getNetlifyAdapter(): Promise<NetlifyAdapter> {
     if (!this.netlifyAdapter) {
-      this.netlifyAdapter = this.adapterFactory.createNetlifyAdapter({});
+      const result = this.adapterFactory.createNetlifyAdapter({});
+      this.netlifyAdapter = await Promise.resolve(result);
     }
     return this.netlifyAdapter;
   }
@@ -176,10 +187,14 @@ export class DeploymentEngine {
 
     // Validate adapters (using config without secrets)
     stepLog.info('Validating adapters');
+    const supabaseAdapter = await this.getSupabaseAdapter();
+    const renderAdapter = await this.getRenderAdapter();
+    const netlifyAdapter = await this.getNetlifyAdapter();
+
     const adapters = [
-      { name: 'supabase', adapter: this.getSupabaseAdapter() },
-      { name: 'render', adapter: this.getRenderAdapter() },
-      { name: 'netlify', adapter: this.getNetlifyAdapter() },
+      { name: 'supabase', adapter: supabaseAdapter },
+      { name: 'render', adapter: renderAdapter },
+      { name: 'netlify', adapter: netlifyAdapter },
     ];
 
     for (const { name, adapter } of adapters) {
@@ -393,7 +408,7 @@ export class DeploymentEngine {
   }
 
   private async executeSupabaseStep(stepDef: DeploymentStepDefinition, context: EngineContext): Promise<AdapterResult> {
-    const adapter = this.getSupabaseAdapter();
+    const adapter = await this.getSupabaseAdapter();
     const { config, secrets } = context;
 
     switch (stepDef.name) {
@@ -448,7 +463,7 @@ export class DeploymentEngine {
   }
 
   private async executeRenderStep(stepDef: DeploymentStepDefinition, context: EngineContext): Promise<AdapterResult> {
-    const adapter = this.getRenderAdapter();
+    const adapter = await this.getRenderAdapter();
     const { config, secrets } = context;
 
     switch (stepDef.name) {
@@ -497,7 +512,7 @@ export class DeploymentEngine {
   }
 
   private async executeNetlifyStep(stepDef: DeploymentStepDefinition, context: EngineContext): Promise<AdapterResult> {
-    const adapter = this.getNetlifyAdapter();
+    const adapter = await this.getNetlifyAdapter();
     const { config } = context;
 
     switch (stepDef.name) {
@@ -630,9 +645,52 @@ export class DeploymentEngine {
   }
 }
 
+/**
+ * Creates a DeploymentEngine with mock adapters (default for development/tests).
+ * This is the default factory used by API routes when no explicit configuration is provided.
+ */
 export function createDeploymentEngine(secretStore?: ReturnType<typeof createSecretStore>): DeploymentEngine {
   return new DeploymentEngine({
-    adapterFactory: createAdapterFactory(),
+    adapterFactory: createMockAdapterFactory(),
     secretStore: secretStore ?? createSecretStore(),
+  });
+}
+
+/**
+ * Creates a DeploymentEngine configured for production with real Supabase adapter.
+ * Uses DurableSecretStore for persistent encrypted secret storage.
+ * Retrieves Supabase PAT from SecretStore via getGlobalSecret('supabase.accessToken').
+ *
+ * @param prisma - PrismaClient instance for DurableSecretStore
+ * @returns DeploymentEngine with real Supabase adapter
+ *
+ * Requires SECRETS_MASTER_KEY environment variable for encryption.
+ * Requires supabase.accessToken secret to be provisioned in SecretStore (global scope).
+ */
+export async function createProductionDeploymentEngine(
+  prisma: PrismaClient
+): Promise<DeploymentEngine> {
+  // Create durable secret store for production
+  const secretStore = await createDurableSecretStore(prisma);
+
+  // Create adapter factory with real Supabase adapter
+  // PAT is retrieved from SecretStore at initialization, never exposed in logs
+  const adapterFactory = createAdapterFactory({
+    useRealAdapters: true,
+    supabaseConfig: {
+      getGlobalSecret: async (key) => {
+        if (key === 'supabase.accessToken') {
+          return secretStore.getGlobal('global', 'supabase.accessToken');
+        }
+        return null;
+      },
+    },
+  });
+
+  return new DeploymentEngine({
+    adapterFactory,
+    secretStore,
+    maxRetries: 3,
+    retryDelayMs: 5000,
   });
 }

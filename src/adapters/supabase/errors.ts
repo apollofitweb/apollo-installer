@@ -71,6 +71,49 @@ export class SupabaseTimeoutError extends Error {
   }
 }
 
+// Custom error classes for migration lifecycle
+export class MigrationExecutionError extends Error {
+  constructor(public readonly migrationName: string, cause: Error) {
+    super(`Migration ${migrationName} execution failed: ${cause.message}`);
+    this.name = 'MigrationExecutionError';
+  }
+}
+
+export class MigrationRegistrationError extends Error {
+  constructor(public readonly migrationName: string, public readonly phase: 'started' | 'finished', cause: Error) {
+    super(`Migration ${migrationName} registration (${phase}) failed: ${cause.message}`);
+    this.name = 'MigrationRegistrationError';
+  }
+}
+
+export class MigrationChecksumMismatchError extends Error {
+  constructor(public readonly migrationName: string, public readonly existingChecksum: string, public readonly calculatedChecksum: string) {
+    super(`Migration ${migrationName} checksum mismatch: existing=${existingChecksum}, calculated=${calculatedChecksum}`);
+    this.name = 'MigrationChecksumMismatchError';
+  }
+}
+
+export class MigrationInProgressOrOrphanedError extends Error {
+  constructor(public readonly migrationName: string, public readonly existingRecord: { id: string; checksum: string; started_at: string; finished_at: string | null; rolled_back_at: string | null }) {
+    super(`Migration ${migrationName} has uncertain state: started_at=${existingRecord.started_at}, finished_at=${existingRecord.finished_at}, rolled_back_at=${existingRecord.rolled_back_at}`);
+    this.name = 'MigrationInProgressOrOrphanedError';
+  }
+}
+
+export class MigrationTimeoutUnknownStateError extends Error {
+  constructor(public readonly migrationName: string, message: string) {
+    super(`Migration ${migrationName} timeout: ${message}`);
+    this.name = 'MigrationTimeoutUnknownStateError';
+  }
+}
+
+export class MigrationInvalidStateError extends Error {
+  constructor(public readonly migrationName: string, public readonly existingRecord: unknown) {
+    super(`Migration ${migrationName} has invalid state: ${JSON.stringify(existingRecord)}`);
+    this.name = 'MigrationInvalidStateError';
+  }
+}
+
 export function mapHttpError(
   statusCode: number,
   endpoint: string,
@@ -102,6 +145,26 @@ export function mapHttpError(
 }
 
 export function toAdapterError(error: Error): { success: false; error: string } {
+  // Custom migration errors - preserve their detailed messages
+  if (error instanceof MigrationExecutionError) {
+    return { success: false, error: error.message };
+  }
+  if (error instanceof MigrationRegistrationError) {
+    return { success: false, error: error.message };
+  }
+  if (error instanceof MigrationChecksumMismatchError) {
+    return { success: false, error: error.message };
+  }
+  if (error instanceof MigrationInProgressOrOrphanedError) {
+    return { success: false, error: error.message };
+  }
+  if (error instanceof MigrationTimeoutUnknownStateError) {
+    return { success: false, error: error.message };
+  }
+  if (error instanceof MigrationInvalidStateError) {
+    return { success: false, error: error.message };
+  }
+
   if (error instanceof SupabaseAuthError) {
     return { success: false, error: 'Falha de autenticação com Supabase: verifique o Personal Access Token' };
   }

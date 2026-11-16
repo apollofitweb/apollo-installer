@@ -6,10 +6,12 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { deploymentRepository } from '../../persistence/deployment.repository.js';
 import { validateFilialInput } from '../../config/validation.js';
-import { createDeploymentEngine } from '../../engine/deployment-engine.js';
+import { createDeploymentEngine, createProductionDeploymentEngine } from '../../engine/deployment-engine.js';
 import { createSecretStore } from '../../secrets/index.js';
 import { ConflictError, NotFoundError } from '../../shared/errors.js';
 import { requireSecretManagement } from '../plugins/auth.js';
+import { prisma } from '../../persistence/prisma.js';
+import { env } from '../../config/env.js';
 
 const createDeploymentSchema = z.object({
   slug: z.string().min(2).max(50),
@@ -211,7 +213,14 @@ export async function deploymentRoutes(app: FastifyInstance) {
       throw new NotFoundError('Deployment', request.params.id);
     }
 
-    const engine = createDeploymentEngine();
+    // Use production engine with real adapters when in production mode
+    // Otherwise use mock adapters for development/testing
+    let engine;
+    if (env.isProduction) {
+      engine = await createProductionDeploymentEngine(prisma);
+    } else {
+      engine = createDeploymentEngine();
+    }
     await engine.startDeployment(deployment.id, request.body ?? {});
 
     return reply.send({ success: true, message: 'Deployment started' });
@@ -224,7 +233,14 @@ export async function deploymentRoutes(app: FastifyInstance) {
       throw new NotFoundError('Deployment', request.params.id);
     }
 
-    const engine = createDeploymentEngine();
+    // Use production engine with real adapters when in production mode
+    // Otherwise use mock adapters for development/testing
+    let engine;
+    if (env.isProduction) {
+      engine = await createProductionDeploymentEngine(prisma);
+    } else {
+      engine = createDeploymentEngine();
+    }
     await engine.resumeDeployment(deployment.id);
 
     return reply.send({ success: true, message: 'Deployment resumed' });

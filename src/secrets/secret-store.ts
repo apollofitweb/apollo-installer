@@ -27,10 +27,10 @@ export interface SecretStore {
   delete(deploymentId: string, scope: 'deployment', key: string, expectedVersion: number): Promise<void>;
   list(deploymentId: string, scope: 'deployment'): Promise<Record<string, SecretMetadata>>;
 
-  // Global-scoped secrets (allowlist only: netlify.siteId, netlify.authToken, installer.jwtSigningSecret)
-  getGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret'): Promise<string | null>;
-  setGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret', value: string, expectedVersion?: number): Promise<SecretMetadata>;
-  deleteGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret', expectedVersion: number): Promise<void>;
+  // Global-scoped secrets (allowlist only: netlify.siteId, netlify.authToken, installer.jwtSigningSecret, supabase.accessToken)
+  getGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken'): Promise<string | null>;
+  setGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', value: string, expectedVersion?: number): Promise<SecretMetadata>;
+  deleteGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', expectedVersion: number): Promise<void>;
   listGlobal(scope: 'global'): Promise<Record<string, SecretMetadata>>;
 }
 
