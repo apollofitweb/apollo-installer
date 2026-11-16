@@ -78,6 +78,14 @@ const deleteSecretSchema = z.object({
 });
 
 export async function deploymentRoutes(app: FastifyInstance) {
+  // Helper to create the appropriate engine based on environment
+  const createEngine = async () => {
+    if (env.isProduction) {
+      return createProductionDeploymentEngine(prisma);
+    }
+    return createDeploymentEngine();
+  };
+
   // Test route for preHandler
   app.get('/test-prehandler', { preHandler: requireSecretManagement }, async (request, reply) => {
     return { success: true, message: 'PreHandler worked!' };
@@ -213,14 +221,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
       throw new NotFoundError('Deployment', request.params.id);
     }
 
-    // Use production engine with real adapters when in production mode
-    // Otherwise use mock adapters for development/testing
-    let engine;
-    if (env.isProduction) {
-      engine = await createProductionDeploymentEngine(prisma);
-    } else {
-      engine = createDeploymentEngine();
-    }
+    const engine = await createEngine();
     await engine.startDeployment(deployment.id, request.body ?? {});
 
     return reply.send({ success: true, message: 'Deployment started' });
@@ -233,14 +234,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
       throw new NotFoundError('Deployment', request.params.id);
     }
 
-    // Use production engine with real adapters when in production mode
-    // Otherwise use mock adapters for development/testing
-    let engine;
-    if (env.isProduction) {
-      engine = await createProductionDeploymentEngine(prisma);
-    } else {
-      engine = createDeploymentEngine();
-    }
+    const engine = await createEngine();
     await engine.resumeDeployment(deployment.id);
 
     return reply.send({ success: true, message: 'Deployment resumed' });

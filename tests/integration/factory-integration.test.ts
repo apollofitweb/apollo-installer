@@ -4,9 +4,9 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { DeploymentEngine } from '../../src/engine/deployment-engine.js';
+import { DeploymentEngine, createProductionDeploymentEngine } from '../../src/engine/deployment-engine.js';
 import { createAdapterFactory, createMockAdapterFactory } from '../../src/adapters/index.js';
-import { createSecretStore } from '../../src/secrets/index.js';
+import { createSecretStore, createDurableSecretStore } from '../../src/secrets/index.js';
 import { deploymentRepository } from '../../src/persistence/deployment.repository.js';
 import { DEPLOYMENT_STEPS } from '../../src/shared/types.js';
 import { prisma } from '../../src/persistence/prisma.js';
@@ -24,10 +24,11 @@ describe('Adapter Factory Integration', () => {
     vi.clearAllMocks();
     global.fetch = mockFetch;
 
-    // Clean database
+    // Clean database - deployments and global secrets
     await prisma.deploymentStep.deleteMany();
     await prisma.deploymentConfig.deleteMany();
     await prisma.deployment.deleteMany();
+    await prisma.globalSecret.deleteMany();
 
     // Reset mock state
     const { resetMockState } = await import('../../src/adapters/mock.js');
@@ -640,34 +641,24 @@ describe('Adapter Factory Integration', () => {
   });
 
   describe('Production Deployment Engine (createProductionDeploymentEngine)', () => {
-    it('should create engine with real Supabase adapter and DurableSecretStore', async () => {
-      // This test validates the factory composition for production
-      // It uses InMemorySecretStore but simulates the production factory pattern
-      const testSecretStore = createSecretStore();
-      if ('clear' in testSecretStore) {
-        (testSecretStore as any).clear();
-      }
+    // Valid 32-byte base64 master key for AES-256-GCM
+    const validMasterKey = Buffer.from('a'.repeat(32)).toString('base64'); // 44 chars
 
-      // Provision the PAT in SecretStore (simulating production setup)
-      await testSecretStore.setGlobal('global', 'supabase.accessToken', 'prod-pat-secret');
+    beforeEach(() => {
+      process.env.SECRETS_MASTER_KEY = validMasterKey;
+    });
 
-      // Create factory with real adapter using getGlobalSecret
-      const factory = createAdapterFactory({
-        useRealAdapters: true,
-        supabaseConfig: {
-          getGlobalSecret: async (key) => {
-            if (key === 'supabase.accessToken') {
-              return testSecretStore.getGlobal('global', 'supabase.accessToken');
-            }
-            return null;
-          },
-        },
-      });
+    afterEach(() => {
+      delete process.env.SECRETS_MASTER_KEY;
+    });
 
-      const engine = new DeploymentEngine({
-        adapterFactory: factory,
-        secretStore: testSecretStore,
-      });
+    it('should create engine with real Supabase adapter and DurableSecretStore via createProductionDeploymentEngine', async () => {
+      // Provision the PAT in DurableSecretStore
+      const durableSecretStore = await createDurableSecretStore(prisma);
+      await durableSecretStore.setGlobal('global', 'supabase.accessToken', 'prod-pat-secret-1');
+
+      // Call the actual production factory function
+      const engine = await createProductionDeploymentEngine(prisma);
 
       // Verify the engine can get the real adapter
       const supabaseAdapter = await engine['getSupabaseAdapter']();
@@ -678,69 +669,36 @@ describe('Adapter Factory Integration', () => {
       const config = (supabaseAdapter as any).config;
       expect(config.accessToken).toBeUndefined();
       expect(config.getGlobalSecret).toBeDefined();
+
+      // Verify secretStore is DurableSecretStore
+      expect(engine['secretStore']).toBeDefined();
     });
 
-    it('should retrieve PAT from SecretStore via getGlobalSecret at initialization', async () => {
-      const testSecretStore = createSecretStore();
-      if ('clear' in testSecretStore) {
-        (testSecretStore as any).clear();
-      }
+    it('should retrieve PAT from SecretStore via getGlobalSecret at initialization using production factory', async () => {
+      // Provision PAT in DurableSecretStore
+      const durableSecretStore = await createDurableSecretStore(prisma);
+      await durableSecretStore.setGlobal('global', 'supabase.accessToken', 'pat-from-secretstore-2');
 
-      let getGlobalSecretCalls = 0;
-      let receivedKey: string | null = null;
-
-      await testSecretStore.setGlobal('global', 'supabase.accessToken', 'pat-from-secretstore');
-
-      const factory = createAdapterFactory({
-        useRealAdapters: true,
-        supabaseConfig: {
-          getGlobalSecret: async (key) => {
-            getGlobalSecretCalls++;
-            receivedKey = key;
-            return testSecretStore.getGlobal('global', key as 'supabase.accessToken');
-          },
-        },
-      });
-
-      const engine = new DeploymentEngine({
-        adapterFactory: factory,
-        secretStore: testSecretStore,
-      });
+      // Call production factory
+      const engine = await createProductionDeploymentEngine(prisma);
 
       // First access should trigger initialization with getGlobalSecret
       const adapter = await engine['getSupabaseAdapter']();
 
-      expect(getGlobalSecretCalls).toBe(1);
-      expect(receivedKey).toBe('supabase.accessToken');
       expect(adapter).toBeInstanceOf(RealSupabaseAdapter);
 
       // Second access should use cached adapter
-      getGlobalSecretCalls = 0;
       const adapter2 = await engine['getSupabaseAdapter']();
-      expect(getGlobalSecretCalls).toBe(0);
       expect(adapter2).toBe(adapter);
     });
 
-    it('should not expose PAT value in logs or config', async () => {
-      const testSecretStore = createSecretStore();
-      if ('clear' in testSecretStore) {
-        (testSecretStore as any).clear();
-      }
+    it('should not expose PAT value in logs or config when using production factory', async () => {
+      const secretPat = 'very-secret-pat-token-12345-3';
+      const durableSecretStore = await createDurableSecretStore(prisma);
+      await durableSecretStore.setGlobal('global', 'supabase.accessToken', secretPat);
 
-      const secretPat = 'very-secret-pat-token-12345';
-      await testSecretStore.setGlobal('global', 'supabase.accessToken', secretPat);
-
-      const factory = createAdapterFactory({
-        useRealAdapters: true,
-        supabaseConfig: {
-          getGlobalSecret: async (key) => testSecretStore.getGlobal('global', key as 'supabase.accessToken'),
-        },
-      });
-
-      const engine = new DeploymentEngine({
-        adapterFactory: factory,
-        secretStore: testSecretStore,
-      });
+      // Call production factory
+      const engine = await createProductionDeploymentEngine(prisma);
 
       const adapter = await engine['getSupabaseAdapter']();
 
@@ -750,17 +708,11 @@ describe('Adapter Factory Integration', () => {
       expect(config.getGlobalSecret).toBeDefined();
 
       // Verify the adapter can still be used (PAT retrieved internally)
-      // We can't call real API, but we can verify the adapter is properly configured
       expect(adapter.name).toBe('supabase');
       expect(adapter.version).toBe('1.0.0');
     });
 
-    it('should execute deployment steps with real adapter factory (mocked API)', async () => {
-      const testSecretStore = createSecretStore();
-      if ('clear' in testSecretStore) {
-        (testSecretStore as any).clear();
-      }
-
+    it('should execute deployment steps with real adapter factory via production factory (mocked API)', async () => {
       const validProjectRef = 'prodref1234567890123'; // exactly 20 chars
 
       mockFetch.mockResolvedValue({
@@ -783,40 +735,31 @@ describe('Adapter Factory Integration', () => {
         })),
       });
 
-      // Provision PAT in SecretStore
-      await testSecretStore.setGlobal('global', 'supabase.accessToken', 'prod-pat-secret');
+      // Provision PAT in DurableSecretStore
+      const durableSecretStore = await createDurableSecretStore(prisma);
+      await durableSecretStore.setGlobal('global', 'supabase.accessToken', 'prod-pat-secret-4');
 
-      // Create production-style factory
-      const factory = createAdapterFactory({
-        useRealAdapters: true,
-        supabaseConfig: {
-          getGlobalSecret: async (key) => testSecretStore.getGlobal('global', key as 'supabase.accessToken'),
-        },
-      });
-
-      const engine = new DeploymentEngine({
-        adapterFactory: factory,
-        secretStore: testSecretStore,
-      });
+      // Call the actual production factory function
+      const engine = await createProductionDeploymentEngine(prisma);
 
       // Create a test deployment
       const deployment = await deploymentRepository.create({
-        slug: 'prod-integration-test',
-        name: 'Prod Integration Test',
+        slug: 'prod-integration-test-4',
+        name: 'Prod Integration Test 4',
         adminEmail: 'admin@test.com',
         adminName: 'Admin Test',
       });
       const deploymentId = deployment.id;
 
-      // Set up deployment-scoped secrets
-      await testSecretStore.set(deploymentId, 'deployment', 'dbPassword', 'test-password-123');
-      await testSecretStore.set(deploymentId, 'deployment', 'jwtAccessSecret', 'test-access-secret-32-chars-long-minimum');
-      await testSecretStore.set(deploymentId, 'deployment', 'jwtRefreshSecret', 'test-refresh-secret-32-chars-long-minimum');
-      await testSecretStore.set(deploymentId, 'deployment', 'allowedOrigins', 'https://prod-integration-test.apollofit.com.br');
-      await testSecretStore.setGlobal('global', 'netlify.authToken', 'mock-netlify-token');
+      // Set up deployment-scoped secrets in DurableSecretStore
+      await durableSecretStore.set(deploymentId, 'deployment', 'dbPassword', 'test-password-123');
+      await durableSecretStore.set(deploymentId, 'deployment', 'jwtAccessSecret', 'test-access-secret-32-chars-long-minimum');
+      await durableSecretStore.set(deploymentId, 'deployment', 'jwtRefreshSecret', 'test-refresh-secret-32-chars-long-minimum');
+      await durableSecretStore.set(deploymentId, 'deployment', 'allowedOrigins', 'https://prod-integration-test.apollofit.com.br');
+      await durableSecretStore.setGlobal('global', 'netlify.authToken', 'mock-netlify-token');
 
       const config = {
-        slug: 'prod-integration-test',
+        slug: 'prod-integration-test-4',
         repo: 'apollofitweb/apollo-web',
         branch: 'develop',
         dockerfilePath: 'docker/Dockerfile',

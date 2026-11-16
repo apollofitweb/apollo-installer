@@ -190,14 +190,14 @@ export class InMemorySecretStore implements SecretStore {
   }
 
   // Global scope methods
-  async getGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret'): Promise<string | null> {
+  async getGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken'): Promise<string | null> {
     assertGlobalKey(key);
     const entry = this.store.global[key];
     if (!entry || entry.metadata.deleted) return null;
     return entry.value;
   }
 
-  async setGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret', value: string, expectedVersion = 0): Promise<SecretMetadata> {
+  async setGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', value: string, expectedVersion = 0): Promise<SecretMetadata> {
     assertGlobalKey(key);
     const current = this.store.global[key];
 
