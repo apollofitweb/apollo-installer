@@ -517,23 +517,15 @@ export class DeploymentEngine {
 
     switch (stepDef.name) {
       case 'netlify_deploy': {
-        return this.retry(
-          () =>
-            adapter.deploySite(context, {
-              repo: config.repo as string,
-              branch: config.branch as string,
-              buildCommand: 'pnpm install --frozen-lockfile && pnpm --filter web run build',
-              publishDir: 'apps/web/dist',
-            }),
-          'netlify_deploy',
-          context
-        );
-      }
-      case 'netlify_configure': {
+        // Step 5: Associate branch domain to shared Matrix Netlify site
+        // Does NOT trigger build - only adds domain alias to existing site
         const siteId = config.netlifySiteId as string;
         const domain = config.customDomain ? (config.domain as string) : `${config.slug}.apollofit.com.br`;
 
-        // Add domain alias (production domain)
+        context.logger.info('[Engine] Starting Netlify domain association', { siteId, domain, slug: config.slug });
+
+        // Add domain alias (production domain) - IDEMPOTENT
+        // POST /sites/{site_id}/domains - verificado na OpenAPI oficial
         const aliasResult = await this.retry(
           () => adapter.addDomainAlias(context, { siteId, domain }),
           'netlify_add_domain',
@@ -541,21 +533,15 @@ export class DeploymentEngine {
         );
         if (!aliasResult.success) return aliasResult;
 
-        // Configure VITE_API_URL for production
-        const prodEnvVars = { VITE_API_URL: config.publicApiUrl as string };
-        const prodConfigResult = await this.retry(
-          () => adapter.configureEnvVars(context, { siteId, envVars: prodEnvVars, context: 'production' }),
-          'netlify_env_production',
-          context
-        );
-        if (!prodConfigResult.success) return prodConfigResult;
-
-        // Configure SPA redirects
-        return this.retry(
-          () => adapter.configureRedirects(context, { siteId }),
-          'netlify_redirects',
-          context
-        );
+        // Return result with domain info for metadata
+        return {
+          success: true,
+          data: {
+            siteId,
+            domain,
+            domainAdded: aliasResult.data?.aliasAdded,
+          },
+        };
       }
       default:
         return { success: false, error: `Unknown Netlify step: ${stepDef.name}` };
@@ -657,15 +643,18 @@ export function createDeploymentEngine(secretStore?: ReturnType<typeof createSec
 }
 
 /**
- * Creates a DeploymentEngine configured for production with real Supabase adapter.
+ * Creates a DeploymentEngine configured for production with real Supabase and Netlify adapters.
  * Uses DurableSecretStore for persistent encrypted secret storage.
  * Retrieves Supabase PAT from SecretStore via getGlobalSecret('supabase.accessToken').
+ * Retrieves Netlify auth token and site ID from SecretStore via getGlobalSecret.
  *
  * @param prisma - PrismaClient instance for DurableSecretStore
- * @returns DeploymentEngine with real Supabase adapter
+ * @returns DeploymentEngine with real Supabase and Netlify adapters
  *
  * Requires SECRETS_MASTER_KEY environment variable for encryption.
  * Requires supabase.accessToken secret to be provisioned in SecretStore (global scope).
+ * Requires netlify.authToken and netlify.siteId secrets to be provisioned in SecretStore (global scope).
+ * netlify.siteId should be the shared Matrix site ID in Netlify.
  */
 export async function createProductionDeploymentEngine(
   prisma: PrismaClient
@@ -673,14 +662,22 @@ export async function createProductionDeploymentEngine(
   // Create durable secret store for production
   const secretStore = await createDurableSecretStore(prisma);
 
-  // Create adapter factory with real Supabase adapter
-  // PAT is retrieved from SecretStore at initialization, never exposed in logs
+  // Create adapter factory with real Supabase and Netlify adapters
+  // Secrets are retrieved from SecretStore at initialization, never exposed in logs
   const adapterFactory = createAdapterFactory({
     useRealAdapters: true,
     supabaseConfig: {
       getGlobalSecret: async (key) => {
         if (key === 'supabase.accessToken') {
           return secretStore.getGlobal('global', 'supabase.accessToken');
+        }
+        return null;
+      },
+    },
+    netlifyConfig: {
+      getGlobalSecret: async (key) => {
+        if (key === 'netlify.authToken' || key === 'netlify.siteId') {
+          return secretStore.getGlobal('global', key);
         }
         return null;
       },

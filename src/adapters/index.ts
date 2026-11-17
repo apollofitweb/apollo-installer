@@ -1,7 +1,8 @@
 /**
  * Adapters module exports
  * OS-004 Fase 4: Inclui RealSupabaseAdapter para produção
- * MockSupabaseAdapter preservado para testes e desenvolvimento
+ * OS-005: Inclui RealNetlifyAdapter para produção
+ * Mock adapters preservados para testes e desenvolvimento
  */
 
 export * from './base.js';
@@ -10,28 +11,33 @@ export * from './supabase/real-adapter.js';
 export * from './supabase/client.js';
 export * from './supabase/errors.js';
 export * from './supabase/migrations.js';
+export * from './netlify/real-adapter.js';
 
 import type { AdapterFactory } from '../shared/types.js';
 import { createMockSupabaseAdapter, createMockRenderAdapter, createMockNetlifyAdapter } from './mock.js';
 import { RealSupabaseAdapter, createRealSupabaseAdapter, type RealSupabaseAdapterConfig } from './supabase/real-adapter.js';
+import { RealNetlifyAdapter, createRealNetlifyAdapter, type RealNetlifyAdapterConfig } from './netlify/real-adapter.js';
 
 /**
  * Creates an adapter factory that can use real or mock adapters based on configuration.
  *
  * @param config - Configuration object
- * @param config.useRealAdapters - If true, uses real Supabase adapter with Management API
+ * @param config.useRealAdapters - If true, uses real adapters (Supabase, Netlify) with Management APIs
  * @param config.supabaseConfig - Configuration for RealSupabaseAdapter (accessToken, getGlobalSecret, etc.)
+ * @param config.netlifyConfig - Configuration for RealNetlifyAdapter (authToken, getGlobalSecret, etc.)
  *
- * When useRealAdapters is true and supabaseConfig.getGlobalSecret is provided,
- * the PAT is retrieved from SecretStore at initialization time, never exposed in logs.
+ * When useRealAdapters is true and getGlobalSecret is provided,
+ * secrets are retrieved from SecretStore at initialization time, never exposed in logs.
  */
 export function createAdapterFactory(config: {
   useRealAdapters?: boolean;
   supabaseConfig?: RealSupabaseAdapterConfig;
+  netlifyConfig?: RealNetlifyAdapterConfig;
 } = {}): AdapterFactory {
-  const { useRealAdapters = false, supabaseConfig = {} } = config;
+  const { useRealAdapters = false, supabaseConfig = {}, netlifyConfig = {} } = config;
 
   let realSupabaseAdapter: RealSupabaseAdapter | null = null;
+  let realNetlifyAdapter: RealNetlifyAdapter | null = null;
 
   return {
     createSupabaseAdapter: async (_config: Record<string, unknown>) => {
@@ -44,7 +50,15 @@ export function createAdapterFactory(config: {
       return createMockSupabaseAdapter();
     },
     createRenderAdapter: (_config: Record<string, unknown>) => createMockRenderAdapter(),
-    createNetlifyAdapter: (_config: Record<string, unknown>) => createMockNetlifyAdapter(),
+    createNetlifyAdapter: async (_config: Record<string, unknown>) => {
+      if (useRealAdapters) {
+        if (!realNetlifyAdapter) {
+          realNetlifyAdapter = await createRealNetlifyAdapter(netlifyConfig);
+        }
+        return realNetlifyAdapter;
+      }
+      return createMockNetlifyAdapter();
+    },
   };
 }
 

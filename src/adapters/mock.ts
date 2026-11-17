@@ -257,8 +257,9 @@ export function createMockNetlifyAdapter(): NetlifyAdapter {
       context.logger.info('[MockNetlify] Deploying site', { repo: params.repo, branch: params.branch });
       await delay(1000);
 
-      // Netlify deploy is idempotent - always creates new build
-      const siteId = `site-${Date.now().toString(36)}`;
+      // For shared Matrix site, use configured siteId (from config.netlifySiteId)
+      // Fallback to generated ID for backwards compatibility in tests
+      const siteId = (context.config.netlifySiteId as string) || `site-${Date.now().toString(36)}`;
       return {
         success: true,
         data: {
@@ -276,26 +277,6 @@ export function createMockNetlifyAdapter(): NetlifyAdapter {
       await delay(300);
       // Idempotent: adding same domain again succeeds
       return { success: true, data: { aliasAdded: true, domain: params.domain } };
-    },
-
-    async configureEnvVars(
-      context: EngineContext,
-      params: { siteId: string; envVars: Record<string, string>; context: 'production' | 'preview' | 'branch' }
-    ): Promise<AdapterResult> {
-      context.logger.info('[MockNetlify] Configuring env vars', {
-        siteId: params.siteId,
-        context: params.context,
-        count: Object.keys(params.envVars).length,
-      });
-      await delay(200);
-      // Idempotent: upsert behavior
-      return { success: true };
-    },
-
-    async configureRedirects(context: EngineContext, params: { siteId: string }): Promise<AdapterResult> {
-      context.logger.info('[MockNetlify] Configuring SPA redirects', { siteId: params.siteId });
-      await delay(100);
-      return { success: true };
     },
 
     async validateDeployment(context: EngineContext, params: { siteUrl: string }): Promise<AdapterResult<{ healthy: boolean }>> {

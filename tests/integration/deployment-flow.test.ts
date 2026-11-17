@@ -542,11 +542,14 @@ describe('Deployment Flow Integration', () => {
       expect(step3!.metadata).toHaveProperty('serviceId');
       expect(step3!.metadata).toHaveProperty('serviceUrl');
 
-      // Check step 5 - netlify_deploy has siteId and siteUrl
+      // Check step 5 - netlify_deploy has siteId, domain, domainAdded (NO siteUrl - no deploy triggered)
       const step5 = completed!.steps!.find(s => s.stepNumber === 5);
       expect(step5!.metadata).toBeDefined();
       expect(step5!.metadata).toHaveProperty('siteId');
-      expect(step5!.metadata).toHaveProperty('siteUrl');
+      expect(step5!.metadata).toHaveProperty('domain');
+      expect(step5!.metadata).toHaveProperty('domainAdded');
+      // siteUrl NÃO deve estar presente - build não é disparado durante provisionamento
+      expect(step5!.metadata).not.toHaveProperty('siteUrl');
     });
   });
 

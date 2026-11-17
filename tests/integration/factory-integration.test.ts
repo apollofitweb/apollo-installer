@@ -11,6 +11,7 @@ import { deploymentRepository } from '../../src/persistence/deployment.repositor
 import { DEPLOYMENT_STEPS } from '../../src/shared/types.js';
 import { prisma } from '../../src/persistence/prisma.js';
 import { RealSupabaseAdapter } from '../../src/adapters/supabase/real-adapter.js';
+import { RealNetlifyAdapter } from '../../src/adapters/netlify/real-adapter.js';
 
 // Mock fetch globally for RealSupabaseAdapter tests
 const mockFetch = vi.fn();
@@ -128,13 +129,18 @@ describe('Adapter Factory Integration', () => {
         })),
       });
 
-      // Set up global secret for PAT
+      // Set up global secrets for both Supabase PAT and Netlify
       await secretStore.setGlobal('global', 'supabase.accessToken', 'test-pat-token-from-secretstore');
+      await secretStore.setGlobal('global', 'netlify.authToken', 'test-netlify-token');
+      await secretStore.setGlobal('global', 'netlify.siteId', 'test-site-id');
 
       const factory = createAdapterFactory({
         useRealAdapters: true,
         supabaseConfig: {
           getGlobalSecret: (key) => secretStore.getGlobal('global', key as 'supabase.accessToken'),
+        },
+        netlifyConfig: {
+          getGlobalSecret: (key) => secretStore.getGlobal('global', key as 'netlify.authToken' | 'netlify.siteId'),
         },
       });
 
@@ -142,7 +148,7 @@ describe('Adapter Factory Integration', () => {
       const renderAdapter = await factory.createRenderAdapter({});
       const netlifyAdapter = await factory.createNetlifyAdapter({});
 
-      // Supabase should be real adapter, others mock
+      // Supabase should be real adapter, Netlify should be real adapter, Render stays mock
       expect(supabaseAdapter).toBeInstanceOf(RealSupabaseAdapter);
       expect(supabaseAdapter.name).toBe('supabase');
       expect(supabaseAdapter.version).toBe('1.0.0'); // Real adapter version
@@ -150,8 +156,9 @@ describe('Adapter Factory Integration', () => {
       expect(renderAdapter).toBeDefined();
       expect(renderAdapter.version).toContain('mock');
 
-      expect(netlifyAdapter).toBeDefined();
-      expect(netlifyAdapter.version).toContain('mock');
+      expect(netlifyAdapter).toBeInstanceOf(RealNetlifyAdapter);
+      expect(netlifyAdapter.name).toBe('netlify');
+      expect(netlifyAdapter.version).toBe('1.0.0'); // Real adapter version
     });
 
     it('should cache RealSupabaseAdapter instance (singleton per factory)', async () => {

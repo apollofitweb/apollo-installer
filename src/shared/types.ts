@@ -249,14 +249,7 @@ export interface NetlifyAdapter extends Adapter {
   addDomainAlias(
     context: EngineContext,
     params: { siteId: string; domain: string }
-  ): Promise<AdapterResult>;
+  ): Promise<AdapterResult<{ aliasAdded: boolean; domain: string }>>;
 
-  configureEnvVars(
-    context: EngineContext,
-    params: { siteId: string; envVars: Record<string, string>; context: 'production' | 'preview' | 'branch' }
-  ): Promise<AdapterResult>;
-
-  configureRedirects(context: EngineContext, params: { siteId: string }): Promise<AdapterResult>;
-
-  validateDeployment(context: EngineContext, params: { siteUrl: string }): Promise<AdapterResult>;
+  validateDeployment(context: EngineContext, params: { siteUrl: string }): Promise<AdapterResult<{ healthy: boolean }>>;
 }

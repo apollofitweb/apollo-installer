@@ -250,20 +250,6 @@ describe('Mock Adapters', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should configure env vars by context', async () => {
-      const result = await adapter.configureEnvVars(context, {
-        siteId: 'site-123',
-        envVars: { VITE_API_URL: 'https://api.example.com' },
-        context: 'production',
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('should configure redirects', async () => {
-      const result = await adapter.configureRedirects(context, { siteId: 'site-123' });
-      expect(result.success).toBe(true);
-    });
-
     it('should validate deployment', async () => {
       const result = await adapter.validateDeployment(context, { siteUrl: 'https://site.netlify.app' });
       expect(result.success).toBe(true);
