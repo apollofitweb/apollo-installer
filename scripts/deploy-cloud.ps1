@@ -157,7 +157,7 @@ if (-not $SkipRender -and $renderOk) {
             region = 'oregon'
             healthCheckPath = '/health'
             envSpecificDetails = @{
-                buildCommand = 'pnpm install --no-frozen-lockfile && pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile && pnpm exec prisma generate --schema prisma/schema.production.prisma && pnpm build'
+                buildCommand = 'npm i -g pnpm@9.15.9 && pnpm install --no-frozen-lockfile && pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile && pnpm exec prisma generate --schema prisma/schema.production.prisma && pnpm build'
                 startCommand = 'pnpm exec prisma db push --schema prisma/schema.production.prisma --skip-generate && pnpm start'
             }
         }
