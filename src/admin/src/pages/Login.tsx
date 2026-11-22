@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Button, Card, CardContent, Input } from '../components/common';
@@ -9,6 +9,12 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // O Render adormece após inatividade. Acorda a API enquanto o usuário digita,
+  // evitando que o primeiro submit estoure o timeout do cold start.
+  useEffect(() => {
+    void api.healthCheck().catch(() => undefined);
+  }, []);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();

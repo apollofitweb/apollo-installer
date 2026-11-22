@@ -13,7 +13,9 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
       },
-      timeout: 30000,
+      // O Render (plano free) pode levar ~30-60s para acordar após inatividade.
+      // 30s causava "timeout of 30000ms exceeded" no primeiro login do dia.
+      timeout: 120000,
     });
 
     this.client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
@@ -38,6 +40,8 @@ class ApiClient {
         const serverMessage = error.response?.data?.message || error.response?.data?.error;
         if (serverMessage) {
           error.message = serverMessage;
+        } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+          error.message = 'A API está inicializando. Aguarde um instante e tente novamente.';
         }
         return Promise.reject(error);
       }

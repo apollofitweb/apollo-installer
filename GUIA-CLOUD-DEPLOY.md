@@ -229,6 +229,7 @@ não é mais usado.
 |---------|-------|---------|
 | UI 401 com `edge-access` | Conta Netlify antiga com SSO global | Usar a conta nova (item 7.1) |
 | `Build script returned non-zero exit code: 2` | Falta `pnpm-workspace.yaml` | Ver item 7.2 |
+| `timeout of 30000ms exceeded` no login | Cold start do Render + timeout curto do axios | Timeout elevado para 120s e `/health` chamado ao abrir a tela de login |
 | `P1001 Can't reach database` | Host direct 5432 | Usar pooler 6543 com `sslmode=require` |
 | `db push` trava no pooler | Transação não suportada | Aplicar `database/schema.sql` via Management API |
 | Segredos ilegíveis na nuvem | `SECRETS_MASTER_KEY` diferente | Replicar a chave do `.env` no Render |
