@@ -24,7 +24,8 @@ param(
     [string]$AdminEmail = 'admin@apollofit.com.br',
     [string]$AdminPassword = 'ApolloInstaller#2026',
     [string]$RenderServiceName = 'apollo-installer-api',
-    [string]$NetlifySiteName = 'apollo-installer',
+    [string]$NetlifySiteName = 'apollo-installer-gilbrandao',
+    [string]$NetlifyAccountSlug = 'gilbrandaoalves',
     [string]$SupabaseProjectName = 'apollo-installer',
     [string]$Region = 'sa-east-1',
     [string]$Repo = 'apollofitweb/apollo-installer',
@@ -196,6 +197,7 @@ if (-not $SkipNetlify -and $netlifyOk) {
     Write-Step '4. Criando site no Netlify'
     $payload = @{
         name = $NetlifySiteName
+        account_slug = $NetlifyAccountSlug
         repo = @{
             provider = 'github'
             repo = $Repo

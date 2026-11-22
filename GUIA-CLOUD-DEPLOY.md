@@ -6,12 +6,14 @@ Este guia registra a arquitetura e o **estado real** do deploy do próprio Apoll
 |---------|--------|---------|
 | **Supabase** | Banco PostgreSQL | Projeto `ogupqfkkgcczncgvuund`, região `sa-east-1` |
 | **Render** | API + UI (Fastify/Node) | `srv-dc15somtlv9c73b5jgeg` → https://apollo-installer-api.onrender.com |
-| **Netlify** | UI (legado/fallback) | Site `40f99039-10c1-4736-bb37-a19fa9bafd9f` → https://apollo-installer.netlify.app |
+| **Netlify** | UI (conta nova) | Site `ab4aeaa5-e63a-4a02-a7ea-69b15bbf9a91` → https://apollo-installer-gilbrandao.netlify.app |
 
-> **Arquitetura final:** API **e** UI são servidas juntas pelo Render. O `dist/admin` é
-> servido por `@fastify/static` e o frontend chama `/api` de forma relativa
-> (`VITE_API_URL` vazio no build do Render). Isso elimina a dependência do Netlify,
-> cuja conta Free não permite desabilitar o SSO global (ver seção 7.1).
+> **Arquitetura final:** API no Render e UI no Netlify (conta `gilbrandaoalves`).
+> O frontend usa `VITE_API_URL=https://apollo-installer-api.onrender.com`.
+> O Render também continua servindo `dist/admin` em
+> https://apollo-installer-api.onrender.com/ como fallback. A conta Netlify antiga
+> (`apollofitweb@gmail.com`) foi abandonada porque o SSO global não pode ser
+> desligado no plano Free (ver seção 7.1).
 
 ---
 
@@ -20,7 +22,7 @@ Este guia registra a arquitetura e o **estado real** do deploy do próprio Apoll
 | Serviço | Conta | Observação |
 |---------|-------|------------|
 | **GitHub** | Conta existente `apollofitweb` | Repo `apollofitweb/apollo-installer` |
-| **Netlify** | Conta existente `apollofitweb@gmail.com` | account id `6acb8fddfc7dc07061d5118f` |
+| **Netlify** | Conta nova `gilbrandaoalves@gmail.com` | account id `67ce102ff7d773f82846f608`, slug `gilbrandaoalves` |
 | **Supabase** | Conta nova | Organização `Apollo Installer` (`aisgnpywlxlbfmlzocrp`) |
 | **Render** | Conta nova | `admin.apolloinstaller@gmail.com`, owner `tea-dc152o2jnfac73fnmrpg` |
 
@@ -38,12 +40,13 @@ Este guia registra a arquitetura e o **estado real** do deploy do próprio Apoll
 | Login na API | ✅ OK | `admin@apollofit.com.br` / `ApolloInstaller#2026` |
 | Leitura de segredos na nuvem | ✅ OK | `netlify.siteId`, `render.installerApiToken` etc. |
 | Dados migrados | ✅ OK | deployments=1, steps=5, configs=1, secrets=5, global_secrets=6 |
-| UI no Render | ✅ Funcionando | https://apollo-installer-api.onrender.com/ → HTTP 200 (título `Apollo Installer - Admin`) |
-| UI Netlify (deploy zip) | ✅ Publicado | Deploy `6b02691a0d88a7b0c6924170`, `state=ready`, restore HTTP 200 |
-| UI Netlify (acesso público) | ❌ Bloqueado | HTTP 401 → `edge-access` (SSO global da conta Free — sem toggle no painel) |
-| Build automático Netlify | ⏳ Falhando | `Build script returned non-zero exit code: 2` |
-| Domínios no Render | ✅ Criados | `apollo-installer.apollofit.com.br` e `api.apollo-installer.apollofit.com.br` |
-| DNS | ⏳ Pendente | Usuário precisa criar os dois CNAMEs apontando para `apollo-installer-api.onrender.com` |
+| UI no Render | ✅ Funcionando | https://apollo-installer-api.onrender.com/ → HTTP 200 (título `Apollo Installer - Admin`, fallback) |
+| Site Netlify (conta nova) | ✅ Criado | `ab4aeaa5-e63a-4a02-a7ea-69b15bbf9a91` → https://apollo-installer-gilbrandao.netlify.app |
+| Token Netlify novo | ✅ No cofre | `netlify.authToken` versão 11 (conta `gilbrandaoalves`, token validado) |
+| Acesso público Netlify | ✅ Sem SSO | `site_sso_login=false`, `has_site_password=false` na conta nova |
+| Build automático Netlify | ⏳ Validando | Causa raiz encontrada: falta de `pnpm-workspace.yaml` (corrigido no commit atual) |
+| Domínios no Render | ⚠️ Ajustar | `api.apollo-installer.apollofit.com.br` permanece; `apollo-installer.apollofit.com.br` será movido para o Netlify |
+| DNS | ⏳ Pendente | UI → `apollo-installer-gilbrandao.netlify.app`; API → `apollo-installer-api.onrender.com` |
 
 ---
 
@@ -53,6 +56,7 @@ Este guia registra a arquitetura e o **estado real** do deploy do próprio Apoll
 |---------|------------|
 | `render.yaml` | Blueprint do Render — `startCommand=pnpm start`, sem `db push` |
 | `netlify.toml` | Build da UI (publish `dist/admin`, redirects SPA) |
+| `pnpm-workspace.yaml` | Inclui `src/admin` no workspace — necessário para o build limpo no Netlify |
 | `prisma/schema.production.prisma` | Schema PostgreSQL usado para gerar o SQL |
 | `database/schema.sql` | DDL aplicado no Supabase via Management API |
 | `database/seed.sql` | Dados migrados do SQLite |
@@ -90,6 +94,14 @@ Este guia registra a arquitetura e o **estado real** do deploy do próprio Apoll
   (multipart gera deploy preso em `state=new`). Publicar com
   `POST /sites/{site_id}/deploys/{deploy_id}/restore`.
 - O deploy zip é o fallback enquanto o build automático não é estabilizado.
+- O site foi criado com `account_slug=gilbrandaoalves` e nome
+  `apollo-installer-gilbrandao` (o nome `apollo-installer` está ocupado pela conta antiga).
+- A integração GitHub usa deploy key `6b035b0429f0a31bd2c3a520` (chave pública
+  instalada no repo como `netlify-apollo-installer-gilbrandao`, somente leitura).
+- Build hook `deploy-main` (`6b035b5d46a3576369bc4e3a`) dispara builds manuais.
+- O build falhava com exit code 2 porque não havia `pnpm-workspace.yaml`: em um
+  clone limpo, `pnpm install` na raiz não instalava as dependências de `src/admin`.
+  O arquivo foi adicionado e o `pnpm-lock.yaml` regenerado com o importer `src/admin`.
 
 ---
 
@@ -136,12 +148,13 @@ $resp.Headers['Access-Control-Allow-Origin']
 
 | Domínio | Onde configurar | Destino |
 |---------|-----------------|---------|
-| `apollo-installer.apollofit.com.br` | Render → Custom Domains (✅ já criado) | CNAME → `apollo-installer-api.onrender.com` |
+| `apollo-installer.apollofit.com.br` | Netlify → Domains (conta nova) | CNAME → `apollo-installer-gilbrandao.netlify.app` |
 | `api.apollo-installer.apollofit.com.br` | Render → Custom Domains (✅ já criado) | CNAME → `apollo-installer-api.onrender.com` |
 
-> **Nota:** o Netlify não é mais usado para os domínios finais. O domínio
-> `apollo-installer.apollofit.com.br` estava em conflito com um site órfão
-> (`2719fb20-1859-4a83-ad9c-0105985e165e`), mas no Render não há conflito.
+> **Nota:** o domínio da UI sai do Render e vai para o novo site Netlify, agora que
+> a conta `gilbrandaoalves` não tem SSO/senha de site. O site
+> `2719fb20-1859-4a83-ad9c-0105985e165e` (`apollo-fit-web`, `custom=apollofit.com.br`)
+> pertence a essa mesma conta, mas usa o domínio raiz — não conflita com o subdomínio.
 
 Depois que o DNS propagar:
 
@@ -158,7 +171,7 @@ Depois que o DNS propagar:
 
 ### 7.1 SSO do Netlify — não há toggle na conta Free
 
-A conta `apollofitweb@gmail.com` tem `site_sso_login=true` com
+A conta antiga `apollofitweb@gmail.com` tem `site_sso_login=true` com
 `site_sso_login_context=all`, o que redireciona qualquer visitante para
 `app.netlify.com/edge-access` (HTTP 401).
 
@@ -170,29 +183,42 @@ Consequências confirmadas:
 - `PUT /accounts/{id}` com o objeto completo → o mesmo 422
 - `PATCH /sites/{id}` com `site_access`, `site_sso_login`, `secure_site` etc. → HTTP 200, mas nenhum campo é alterado
 
-**Solução adotada:** a UI passou a ser servida pelo próprio Render, junto com a API,
-em https://apollo-installer-api.onrender.com/ (HTTP 200, validado). O Netlify fica
-apenas como fallback histórico. Se no futuro quiser voltar a usar o Netlify, será
-necessário fazer upgrade para um plano que inclua `global_access_controls`.
+**Solução adotada:** migração para a conta nova `gilbrandaoalves@gmail.com`
+(account `67ce102ff7d773f82846f608`). Embora também seja Free e tenha
+`global_access_controls.included=false`, ela está com `site_sso_login=false` e
+`has_site_password=false`, então o site é público. A UI no Render permanece como
+fallback em https://apollo-installer-api.onrender.com/.
 
 ### 7.2 Build automático do Netlify
 
-Os deploys via Git falham com exit code 2; os logs não estão disponíveis via API
-(os endpoints de log da API pública são apenas para escrita). O build local passa.
-O `netlify.toml` foi simplificado (sem `npm i -g`, sem `tsc` no Netlify).
-Se ainda falhar após o próximo push, copiar o log do painel:
+Os deploys via Git falhavam com `Build script returned non-zero exit code: 2` nas
+duas contas. A API pública não permite ler o log (os endpoints de log são somente
+escrita), então a causa foi identificada por reprodução local: faltava
+`pnpm-workspace.yaml`. Sem ele, `pnpm install` na raiz de um clone limpo não
+instalava as dependências de `src/admin`, e o `vite build` falhava.
+
+Correção aplicada: `pnpm-workspace.yaml` criado, `pnpm-lock.yaml` regenerado com os
+importers `.` e `src/admin`, e `packageManager: pnpm@9.15.9` adicionado ao
+`package.json`. O build local com o comando exato do `netlify.toml` passa.
+
+Se ainda falhar após o push, copiar o log do painel:
 **Deploys → deploy falhado → Deploy log**.
 
-Enquanto isso, o deploy zip manual (`6b02691a0d88a7b0c6924170`) permanece publicado.
+O deploy zip manual antigo (`6b02691a0d88a7b0c6924170`) pertence à conta antiga e
+não é mais usado.
 
 ### 7.3 Checklist
 
-1. [x] Confirmar que a UI funciona no Render (https://apollo-installer-api.onrender.com/).
-2. [x] Criar os dois domínios customizados no Render (feito via API).
-3. [ ] Configurar DNS: dois CNAMEs → `apollo-installer-api.onrender.com`.
-4. [ ] Após propagação, atualizar `APP_URL` e `PUBLIC_API_URL` no Render.
-5. [ ] Validar `https://apollo-installer.apollofit.com.br` e `https://api.apollo-installer.apollofit.com.br/health`.
-6. [ ] (Opcional) Corrigir ou abandonar o build automático do Netlify — não impacta a produção.
+1. [x] Validar token da conta Netlify nova e salvar em `netlify.authToken` (v11).
+2. [x] Confirmar que a conta nova não tem SSO/senha de site.
+3. [x] Criar site `apollo-installer-gilbrandao` na conta nova.
+4. [x] Instalar deploy key no GitHub e associar ao site.
+5. [x] Configurar `VITE_API_URL` e build hook `deploy-main`.
+6. [x] Corrigir `pnpm-workspace.yaml` / lockfile para o build limpo.
+7. [ ] Fazer push e validar build automático no Netlify.
+8. [ ] Mover `apollo-installer.apollofit.com.br` do Render para o Netlify.
+9. [ ] Configurar DNS: UI → `apollo-installer-gilbrandao.netlify.app`; API → `apollo-installer-api.onrender.com`.
+10. [ ] Validar UI, API, login e CORS nos domínios finais.
 
 ---
 
@@ -200,8 +226,8 @@ Enquanto isso, o deploy zip manual (`6b02691a0d88a7b0c6924170`) permanece public
 
 | Sintoma | Causa | Solução |
 |---------|-------|---------|
-| UI 401 com `edge-access` | Conta Netlify Free sem `global_access_controls` | Usar a UI no Render (item 7.1) |
-| `Build script returned non-zero exit code: 2` | Build command no Netlify | Não impacta produção; ver item 7.2 |
+| UI 401 com `edge-access` | Conta Netlify antiga com SSO global | Usar a conta nova (item 7.1) |
+| `Build script returned non-zero exit code: 2` | Falta `pnpm-workspace.yaml` | Ver item 7.2 |
 | `P1001 Can't reach database` | Host direct 5432 | Usar pooler 6543 com `sslmode=require` |
 | `db push` trava no pooler | Transação não suportada | Aplicar `database/schema.sql` via Management API |
 | Segredos ilegíveis na nuvem | `SECRETS_MASTER_KEY` diferente | Replicar a chave do `.env` no Render |
