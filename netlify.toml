@@ -10,6 +10,7 @@
 [build.environment]
   NODE_VERSION = "20.19.5"
   PNPM_VERSION = "9.15.9"
+  VITE_API_URL = "https://apollo-installer-api.onrender.com"
 
 # SPA fallback: todas as rotas (login, /deployments/:id) devem servir index.html
 [[redirects]]

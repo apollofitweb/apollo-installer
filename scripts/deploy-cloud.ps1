@@ -103,9 +103,9 @@ if (-not $SkipSupabase -and $supabaseOk) {
             $p = Invoke-RestMethod -Uri "https://api.supabase.com/v1/projects/$ref" -Headers @{ Authorization = "Bearer $($secrets['supabase.accessToken'])" } -TimeoutSec 20
             if ($p.status -eq 'ACTIVE') { Write-Ok 'Projeto ACTIVE'; break }
         }
-        $conn = Invoke-RestMethod -Uri "https://api.supabase.com/v1/projects/$ref" -Headers @{ Authorization = "Bearer $($secrets['supabase.accessToken'])" } -TimeoutSec 20
-        $dbUrl = $conn.connection_strings.pooler.transaction
-        $directUrl = $conn.connection_strings.direct
+        $poolerCfg = (Invoke-RestMethod -Uri "https://api.supabase.com/v1/projects/$ref/config/database/pooler" -Headers @{ Authorization = "Bearer $($secrets['supabase.accessToken'])" } -TimeoutSec 20)[0]
+        $dbUrl = "postgresql://$($poolerCfg.db_user):$dbPassword@$($poolerCfg.db_host):$($poolerCfg.db_port)/$($poolerCfg.db_name)?pgbouncer=true"
+        $directUrl = "postgresql://postgres:$dbPassword@db.$ref.supabase.co:5432/postgres"
         Write-Ok "Connection strings obtidas"
     }
 } elseif ($SkipSupabase) {
@@ -134,12 +134,13 @@ if (-not $SkipRender -and $renderOk) {
         @{ key = 'JWT_ACCESS_SECRET'; value = $jwtAccess },
         @{ key = 'JWT_REFRESH_SECRET'; value = $jwtRefresh },
         @{ key = 'ADMIN_EMAIL'; value = $AdminEmail },
+        @{ key = 'ADMIN_PASSWORD_HASH'; value = '$2b$12$lcL7zleC9RumqswKBYhJ2eQCteZNpAZQIkqGvxBap8tahpG/xHO8G' },
         @{ key = 'SECRETS_MASTER_KEY'; value = $masterKey },
         @{ key = 'ALLOWED_ORIGINS'; value = "https://$NetlifySiteName.netlify.app,https://apollo-installer.apollofit.com.br" },
         @{ key = 'PUBLIC_API_URL'; value = "https://$RenderServiceName.onrender.com" },
         @{ key = 'APP_URL'; value = "https://$NetlifySiteName.netlify.app" },
         @{ key = 'RENDER_REGION'; value = 'oregon' },
-        @{ key = 'RENDER_PLAN'; value = 'starter' }
+        @{ key = 'RENDER_PLAN'; value = 'free' }
     )
 
     $svcPayload = @{
@@ -151,20 +152,22 @@ if (-not $SkipRender -and $renderOk) {
         autoDeploy = 'yes'
         envVars = $envVars
         serviceDetails = @{
-            env = 'node'
-            plan = 'starter'
+            runtime = 'node'
+            plan = 'free'
             region = 'oregon'
-            buildCommand = 'pnpm install --no-frozen-lockfile && pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile && pnpm exec prisma generate --schema prisma/schema.production.prisma && pnpm build'
-            startCommand = 'pnpm exec prisma db push --schema prisma/schema.production.prisma --skip-generate && pnpm start'
             healthCheckPath = '/health'
+            envSpecificDetails = @{
+                buildCommand = 'pnpm install --no-frozen-lockfile && pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile && pnpm exec prisma generate --schema prisma/schema.production.prisma && pnpm build'
+                startCommand = 'pnpm exec prisma db push --schema prisma/schema.production.prisma --skip-generate && pnpm start'
+            }
         }
     } | ConvertTo-Json -Depth 10
 
     if (-not $WhatIf) {
         try {
             $svc = Invoke-RestMethod -Uri 'https://api.render.com/v1/services' -Method Post `
-                -Headers @{ Authorization = "Bearer $($secrets['render.installerApiToken'])"; 'Content-Type' = 'application/json' } `
-                -Body $svcPayload -TimeoutSec 60
+                -Headers @{ Authorization = "Bearer $($secrets['render.installerApiToken'])" } `
+                -ContentType 'application/json' -Body $svcPayload -TimeoutSec 60
             Write-Ok "Servico Render criado: $($svc.service.id)"
         } catch {
             Write-Warn "Render: $($_.Exception.Message)"
@@ -198,6 +201,18 @@ if (-not $SkipNetlify -and $netlifyOk) {
                 -Headers @{ Authorization = "Bearer $($secrets['netlify.authToken'])"; 'Content-Type' = 'application/json' } `
                 -Body $payload -TimeoutSec 60
             Write-Ok "Site Netlify criado: $($site.id) - $($site.ssl_url)"
+            $envPayload = ConvertTo-Json -InputObject @(@{
+                key = 'VITE_API_URL'
+                values = @(@{ value = "https://$RenderServiceName.onrender.com"; context = 'all' })
+            }) -Depth 8
+            try {
+                Invoke-RestMethod -Uri "https://api.netlify.com/api/v1/accounts/$($site.account_id)/env?site_id=$($site.id)" -Method Post `
+                    -Headers @{ Authorization = "Bearer $($secrets['netlify.authToken'])" } `
+                    -ContentType 'application/json' -Body $envPayload -TimeoutSec 30 | Out-Null
+                Write-Ok "VITE_API_URL configurada no Netlify"
+            } catch {
+                Write-Warn "Netlify env: $($_.Exception.Message)"
+            }
         } catch {
             Write-Warn "Netlify: $($_.Exception.Message)"
         }

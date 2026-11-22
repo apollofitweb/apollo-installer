@@ -30,15 +30,15 @@ Este guia explica como hospedar o **próprio Apollo Installer** (API + interface
 | Item | Estado | Detalhe |
 |------|--------|---------|
 | Token Render (conta antiga) | ✅ Válido (HTTP 200) | Owner `tea-dbuva6on74is739hura0` (GK-TOP-FITNESS) — preservado para a loja GK |
-| Token Render (conta nova) | ⏳ A criar | Será salvo em `render.installerApiToken` e usado pelo instalador |
-| Token Supabase | ❌ Placeholder (`global-supab...`) | HTTP 401 — precisa de PAT real |
-| Token Netlify | ❌ Placeholder (`global-netli...`) | HTTP 401 — precisa de Personal Access Token real |
-| Repo GitHub `apollofitweb/apollo-installer` | ❌ Não existe (404) | Precisa ser criado e publicado |
-| Remote Git local | ❌ Ausente | `git remote -v` vazio |
-| `DATABASE_URL` / `DIRECT_URL` | ❌ Placeholder (`host:5432`) | Precisa vir do Supabase |
+| Token Render (conta nova) | ✅ Válido (HTTP 200) | Salvo em `render.installerApiToken` |
+| Token Supabase | ✅ Válido (HTTP 200) | Salvo em `supabase.accessToken` |
+| Token Netlify | ✅ Válido (HTTP 200) | Salvo em `netlify.authToken` — conta `apollofitweb@gmail.com` |
+| Repo GitHub `apollofitweb/apollo-installer` | ✅ Publicado | Commit `dfb7926` na branch `main` |
+| Remote Git local | ✅ Configurado | `origin` → `https://github.com/apollofitweb/apollo-installer.git` |
+| `DATABASE_URL` / `DIRECT_URL` | ✅ Obtidos do Supabase | Pooler `aws-0-sa-east-1.pooler.supabase.com:6543` (+ `pgbouncer=true`) |
 | Docker local | ❌ Indisponível | Não é necessário — Render usa runtime Node |
 
-**Conclusão:** os arquivos de configuração estão prontos, mas a criação automática dos recursos está bloqueada até que os tokens e o repositório sejam fornecidos.
+**Conclusão:** deploy executado. Supabase `ogupqfkkgcczncgvuund`, Render `srv-dc15somtlv9c73b5jgeg` (plano `free`) e Netlify `40f99039-10c1-4736-bb37-a19fa9bafd9f` (`https://apollo-installer.netlify.app`). Falta configurar domínios customizados e validar a aplicação.
 
 ---
 
@@ -235,7 +235,7 @@ $resp = $req.GetResponse()
 | Serviço | Plano sugerido | Observação |
 |---------|----------------|------------|
 | Supabase | Free | Suficiente para começar (500 MB) |
-| Render | Starter (US$ 7/mês) | Free tier adormece após inatividade |
+| Render | Free | Adormece após inatividade; `starter` exige cartão |
 | Netlify | Free | 100 GB bandwidth/mês |
 
 ---
@@ -243,7 +243,7 @@ $resp = $req.GetResponse()
 ## 11. Próximos passos imediatos
 
 1. ✅ Arquivos de deploy criados e validados (`tsc`, 285 testes, build).
-2. ⏳ Usuário fornece: PAT Supabase, PAT Netlify e cria repo `apollofitweb/apollo-installer`.
-3. ⏳ Executar `.\scripts\deploy-cloud.ps1`.
-4. ⏳ Configurar domínios personalizados e migrar segredos.
+2. ✅ Tokens Supabase/Render/Netlify injetados e repo `apollofitweb/apollo-installer` publicado.
+3. ✅ Deploy executado (Supabase, Render `free`, Netlify).
+4. ⏳ Configurar domínios personalizados e migrar segredos/dados para o banco na nuvem.
 5. ⏳ Validar health, CORS e login na nuvem.

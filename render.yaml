@@ -18,7 +18,7 @@ services:
   - type: web
     name: apollo-installer-api
     runtime: node
-    plan: starter
+    plan: free
     region: oregon
     branch: main
     rootDir: .
@@ -51,7 +51,7 @@ services:
       - key: SECRETS_MASTER_KEY
         generateValue: true # AES-GCM base64 de 32 bytes (gerado pelo Render)
       - key: ALLOWED_ORIGINS
-        value: https://apollo-installer.netlify.app
+        value: https://apollo-installer.netlify.app,https://apollo-installer.apollofit.com.br
       - key: PUBLIC_API_URL
         value: https://apollo-installer-api.onrender.com
       - key: APP_URL
@@ -72,4 +72,4 @@ services:
       - key: RENDER_REGION
         value: oregon
       - key: RENDER_PLAN
-        value: starter
+        value: free
