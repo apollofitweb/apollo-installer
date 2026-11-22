@@ -24,8 +24,8 @@ services:
     rootDir: .
     buildCommand: |
       npm i -g pnpm@9.15.9 &&
-      pnpm install --no-frozen-lockfile &&
-      pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile &&
+      pnpm install --no-frozen-lockfile --prod=false &&
+      pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile --prod=false &&
       pnpm exec prisma generate --schema prisma/schema.production.prisma &&
       pnpm build
     startCommand: |

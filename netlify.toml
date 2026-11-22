@@ -4,7 +4,7 @@
 
 [build]
   base = ""
-  command = "pnpm install --no-frozen-lockfile && pnpm --filter @apollo-installer/admin-ui build"
+  command = "npm i -g pnpm@9.15.9 && pnpm install --no-frozen-lockfile --prod=false && pnpm --filter @apollo-installer/admin-ui build"
   publish = "dist/admin"
 
 [build.environment]
