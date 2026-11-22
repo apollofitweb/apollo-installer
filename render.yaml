@@ -51,7 +51,7 @@ services:
       - key: SECRETS_MASTER_KEY
         sync: false
       - key: ALLOWED_ORIGINS
-        value: https://apollo-installer.netlify.app,https://apollo-installer.apollofit.com.br
+        value: https://apollo-installer-gilbrandao.netlify.app,https://apollo-installer.netlify.app,https://apollo-installer.apollofit.com.br
       - key: PUBLIC_API_URL
         value: https://api.apollo-installer.apollofit.com.br
       - key: APP_URL

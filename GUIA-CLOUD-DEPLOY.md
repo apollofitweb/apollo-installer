@@ -44,8 +44,9 @@ Este guia registra a arquitetura e o **estado real** do deploy do próprio Apoll
 | Site Netlify (conta nova) | ✅ Criado | `ab4aeaa5-e63a-4a02-a7ea-69b15bbf9a91` → https://apollo-installer-gilbrandao.netlify.app |
 | Token Netlify novo | ✅ No cofre | `netlify.authToken` versão 11 (conta `gilbrandaoalves`, token validado) |
 | Acesso público Netlify | ✅ Sem SSO | `site_sso_login=false`, `has_site_password=false` na conta nova |
-| Build automático Netlify | ⏳ Validando | Causa raiz encontrada: falta de `pnpm-workspace.yaml` (corrigido no commit atual) |
-| Domínios no Render | ⚠️ Ajustar | `api.apollo-installer.apollofit.com.br` permanece; `apollo-installer.apollofit.com.br` será movido para o Netlify |
+| Build automático Netlify | ✅ OK | Deploy `6b035cbe90b2df25c1fba962`, commit `3f22c33`, `state=ready` |
+| CORS | ✅ OK | `ALLOWED_ORIGINS` atualizado no Render; preflight retorna o domínio Netlify |
+| Domínios | ✅ Divididos | UI no Netlify; `api.apollo-installer.apollofit.com.br` no Render |
 | DNS | ⏳ Pendente | UI → `apollo-installer-gilbrandao.netlify.app`; API → `apollo-installer-api.onrender.com` |
 
 ---
@@ -215,10 +216,10 @@ não é mais usado.
 4. [x] Instalar deploy key no GitHub e associar ao site.
 5. [x] Configurar `VITE_API_URL` e build hook `deploy-main`.
 6. [x] Corrigir `pnpm-workspace.yaml` / lockfile para o build limpo.
-7. [ ] Fazer push e validar build automático no Netlify.
-8. [ ] Mover `apollo-installer.apollofit.com.br` do Render para o Netlify.
+7. [x] Fazer push e validar build automático no Netlify (`state=ready`).
+8. [x] Mover `apollo-installer.apollofit.com.br` do Render para o Netlify.
 9. [ ] Configurar DNS: UI → `apollo-installer-gilbrandao.netlify.app`; API → `apollo-installer-api.onrender.com`.
-10. [ ] Validar UI, API, login e CORS nos domínios finais.
+10. [ ] Após propagação, validar UI, API, login e CORS nos domínios finais.
 
 ---
 
