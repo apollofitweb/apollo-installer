@@ -15,16 +15,15 @@
     "declarationMap": true,
     "sourceMap": true,
     "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@shared/*": ["src/shared/*"],
-      "@admin/*": ["src/admin/*"],
-      "@api/*": ["src/api/*"],
-      "@engine/*": ["src/engine/*"],
-      "@adapters/*": ["src/adapters/*"],
-      "@persistence/*": ["src/persistence/*"],
-      "@config/*": ["src/config/*"]
+      "@/*": ["./src/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@admin/*": ["./src/admin/*"],
+      "@api/*": ["./src/api/*"],
+      "@engine/*": ["./src/engine/*"],
+      "@adapters/*": ["./src/adapters/*"],
+      "@persistence/*": ["./src/persistence/*"],
+      "@config/*": ["./src/config/*"]
     }
   },
   "include": ["src/**/*"],
