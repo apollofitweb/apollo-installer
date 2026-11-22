@@ -12,6 +12,7 @@ import { DEPLOYMENT_STEPS } from '../../src/shared/types.js';
 import { prisma } from '../../src/persistence/prisma.js';
 import { RealSupabaseAdapter } from '../../src/adapters/supabase/real-adapter.js';
 import { RealNetlifyAdapter } from '../../src/adapters/netlify/real-adapter.js';
+import { RealRenderAdapter } from '../../src/adapters/render/real-adapter.js';
 
 // Mock fetch globally for RealSupabaseAdapter tests
 const mockFetch = vi.fn();
@@ -148,13 +149,14 @@ describe('Adapter Factory Integration', () => {
       const renderAdapter = await factory.createRenderAdapter({});
       const netlifyAdapter = await factory.createNetlifyAdapter({});
 
-      // Supabase should be real adapter, Netlify should be real adapter, Render stays mock
+      // Supabase, Netlify and Render should all be real adapters
       expect(supabaseAdapter).toBeInstanceOf(RealSupabaseAdapter);
       expect(supabaseAdapter.name).toBe('supabase');
       expect(supabaseAdapter.version).toBe('1.0.0'); // Real adapter version
 
-      expect(renderAdapter).toBeDefined();
-      expect(renderAdapter.version).toContain('mock');
+      expect(renderAdapter).toBeInstanceOf(RealRenderAdapter);
+      expect(renderAdapter.name).toBe('render');
+      expect(renderAdapter.version).toBe('1.0.0'); // Real adapter version
 
       expect(netlifyAdapter).toBeInstanceOf(RealNetlifyAdapter);
       expect(netlifyAdapter.name).toBe('netlify');

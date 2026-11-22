@@ -1,0 +1,126 @@
+// Apollo Installer — PostgreSQL schema (production / Supabase)
+// Use with: prisma generate --schema prisma/schema.production.prisma
+//           prisma db push --schema prisma/schema.production.prisma
+//
+// The default schema.prisma stays SQLite for local development.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Deployment {
+  id            String    @id @default(uuid())
+  slug          String    @unique
+  name          String
+  domain        String?
+  adminEmail    String
+  adminName     String
+  status        DeploymentStatus @default(PENDING)
+  currentStep   Int       @default(0)
+  totalSteps    Int       @default(5)
+  errorMessage  String?
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  completedAt   DateTime?
+  steps         DeploymentStep[]
+  config        DeploymentConfig?
+}
+
+model DeploymentStep {
+  id            String        @id @default(uuid())
+  deploymentId  String
+  deployment    Deployment    @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  stepNumber    Int
+  name          String
+  description   String?
+  status        StepStatus    @default(PENDING)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  errorMessage  String?
+  metadata      Json?
+  version       Int           @default(1)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([deploymentId, stepNumber])
+  @@index([deploymentId])
+}
+
+model DeploymentConfig {
+  id                    String   @id @default(uuid())
+  deploymentId          String   @unique
+  deployment            Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  supabaseProjectRef    String?
+  supabaseRegion        String?
+  renderServiceId       String?
+  netlifySiteId         String?
+  customDomain          String?
+  repo                  String?
+  branch                String?
+  dockerfilePath        String?
+  publicApiUrl          String?
+  allowedOrigins        String?
+  mercadoPagoEnabled    Boolean  @default(false)
+  mercadoPagoMode       String?  @default("sandbox")
+  smtpHost              String?
+  smtpPort              Int?
+  smtpUser              String?
+  smtpFrom              String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model DeploymentSecret {
+  id            String   @id @default(uuid())
+  deploymentId  String
+  scope         String   @default("deployment")
+  key           String
+  valueEncrypted String  @db.Text
+  version       Int      @default(1)
+  updatedBy     String
+  deleted       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([deploymentId, scope, key])
+  @@index([deploymentId])
+}
+
+model GlobalSecret {
+  id            String   @id @default(uuid())
+  scope         String   @default("global")
+  key           String
+  valueEncrypted String  @db.Text
+  version       Int      @default(1)
+  updatedBy     String
+  deleted       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([scope, key])
+}
+
+enum DeploymentStatus {
+  PENDING
+  VALIDATING
+  IN_PROGRESS
+  WAITING_EXTERNAL
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+}
+
+enum StepStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}

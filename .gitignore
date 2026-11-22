@@ -32,7 +32,7 @@ logs/
 coverage/
 
 # Prisma
-prisma/migrations/
+# NOTE: prisma/migrations/ must be tracked so deployments can apply them.
 
 # Temporary files
 *.tmp

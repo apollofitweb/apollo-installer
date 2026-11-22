@@ -4,10 +4,11 @@
 
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import bcrypt from 'bcrypt';
 import { deploymentRepository } from '../../persistence/deployment.repository.js';
 import { validateFilialInput } from '../../config/validation.js';
 import { createDeploymentEngine, createProductionDeploymentEngine } from '../../engine/deployment-engine.js';
-import { createSecretStore } from '../../secrets/index.js';
+import { getSecretStore } from '../../secrets/index.js';
 import { ConflictError, NotFoundError } from '../../shared/errors.js';
 import { requireSecretManagement } from '../plugins/auth.js';
 import { prisma } from '../../persistence/prisma.js';
@@ -67,8 +68,18 @@ const setDeploymentSecretSchema = z.object({
   expectedVersion: z.number().int().min(0).optional(),
 });
 
+const GLOBAL_SECRET_KEY_VALUES = [
+  'netlify.siteId',
+  'netlify.authToken',
+  'installer.jwtSigningSecret',
+  'supabase.accessToken',
+  'render.apiToken',
+  'render.installerApiToken',
+  'render.ownerId',
+] as const;
+
 const setGlobalSecretSchema = z.object({
-  key: z.enum(['netlify.siteId', 'netlify.authToken', 'installer.jwtSigningSecret']),
+  key: z.enum(GLOBAL_SECRET_KEY_VALUES),
   value: z.string().min(1),
   expectedVersion: z.number().int().min(0).optional(),
 });
@@ -83,13 +94,10 @@ export async function deploymentRoutes(app: FastifyInstance) {
     if (env.isProduction) {
       return createProductionDeploymentEngine(prisma);
     }
-    return createDeploymentEngine();
+    // Share the same secret store used by the credentials API.
+    return createDeploymentEngine(await getSecretStore());
   };
 
-  // Test route for preHandler
-  app.get('/test-prehandler', { preHandler: requireSecretManagement }, async (request, reply) => {
-    return { success: true, message: 'PreHandler worked!' };
-  });
   // Create new deployment
   app.post<{ Body: z.infer<typeof createDeploymentSchema> }>(
     '/deployments',
@@ -157,15 +165,38 @@ export async function deploymentRoutes(app: FastifyInstance) {
         adminName: request.body.adminName,
       });
 
-      // Store operational config if provided
-      const { repo, branch, dockerfilePath, publicApiUrl, ..._rest } = request.body;
-      if (repo || branch || dockerfilePath || publicApiUrl) {
-        await deploymentRepository.createConfig(deployment.id, {
-          repo: repo ?? 'apollofitweb/apollo-web',
-          branch: branch ?? 'develop',
-          dockerfilePath: dockerfilePath ?? 'docker/Dockerfile',
-          publicApiUrl: publicApiUrl ?? `https://api.${request.body.slug}.apollofit.com.br`,
-        });
+      // Persist operational config (non-sensitive values only)
+      const { repo, branch, dockerfilePath, publicApiUrl, smtpConfig, adminPassword, ...rest } = request.body;
+      const customDomainValue = request.body.customDomain
+        ? (request.body.domain?.trim() || `${request.body.slug}.apollofit.com.br`)
+        : null;
+
+      await deploymentRepository.createConfig(deployment.id, {
+        repo: repo ?? 'apollofitweb/apollo-web',
+        branch: branch ?? 'develop',
+        dockerfilePath: dockerfilePath ?? 'docker/Dockerfile',
+        supabaseRegion: 'sa-east-1',
+        publicApiUrl: publicApiUrl ?? `https://api.${request.body.slug}.apollofit.com.br`,
+        customDomain: customDomainValue,
+        allowedOrigins: request.body.domain
+          ? `https://${request.body.domain.trim()}`
+          : `https://${request.body.slug}.apollofit.com.br`,
+        mercadoPagoEnabled: rest.mercadoPagoEnabled ?? false,
+        mercadoPagoMode: rest.mercadoPagoMode ?? 'sandbox',
+        smtpHost: smtpConfig?.host ?? null,
+        smtpPort: smtpConfig?.port ?? null,
+        smtpUser: smtpConfig?.user ?? null,
+        smtpFrom: smtpConfig?.from ?? null,
+      });
+
+      // Sensitive values go to the secret store (never into config/database plaintext)
+      const secretStore = await getSecretStore();
+      if (adminPassword) {
+        const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
+        await secretStore.set(deployment.id, 'deployment', 'supabaseAdminPasswordHash', adminPasswordHash, 0);
+      }
+      if (smtpConfig?.pass) {
+        await secretStore.set(deployment.id, 'deployment', 'smtpPass', smtpConfig.pass, 0);
       }
 
       return reply.status(201).send({
@@ -278,7 +309,24 @@ export async function deploymentRoutes(app: FastifyInstance) {
         throw new NotFoundError('Deployment', request.params.id);
       }
 
-      const config = await deploymentRepository.updateConfig(request.params.id, request.body);
+      // Remove fields that are not columns / are secrets so Prisma never sees them
+      const {
+        smtpPass,
+        jwtAccessSecret: _jwtAccessSecret,
+        jwtRefreshSecret: _jwtRefreshSecret,
+        netlifyDomain: _netlifyDomain,
+        ...configData
+      } = request.body as z.infer<typeof updateConfigSchema> & {
+        jwtAccessSecret?: string;
+        jwtRefreshSecret?: string;
+      };
+
+      if (smtpPass) {
+        const secretStore = await getSecretStore();
+        await secretStore.set(request.params.id, 'deployment', 'smtpPass', smtpPass, 0);
+      }
+
+      const config = await deploymentRepository.updateConfig(request.params.id, configData);
       return reply.send({ success: true, data: config });
     }
   );
@@ -346,7 +394,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
         throw new NotFoundError('Deployment', request.params.id);
       }
 
-      const secretStore = createSecretStore();
+      const secretStore = await getSecretStore();
       try {
         const metadata = await secretStore.set(
           deployment.id,
@@ -375,7 +423,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
         throw new NotFoundError('Deployment', request.params.id);
       }
 
-      const secretStore = createSecretStore();
+      const secretStore = await getSecretStore();
       const value = await secretStore.get(deployment.id, 'deployment', request.params.key);
       if (value === null) {
         return reply.status(404).send({ success: false, error: 'Secret not found' });
@@ -394,7 +442,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
         throw new NotFoundError('Deployment', request.params.id);
       }
 
-      const secretStore = createSecretStore();
+      const secretStore = await getSecretStore();
       const list = await secretStore.list(deployment.id, 'deployment');
       const meta = list[request.params.key];
       if (!meta) {
@@ -414,7 +462,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
         throw new NotFoundError('Deployment', request.params.id);
       }
 
-      const secretStore = createSecretStore();
+      const secretStore = await getSecretStore();
       const list = await secretStore.list(deployment.id, 'deployment');
       return reply.send({ success: true, data: list });
     }
@@ -445,7 +493,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
         throw new NotFoundError('Deployment', request.params.id);
       }
 
-      const secretStore = createSecretStore();
+      const secretStore = await getSecretStore();
       try {
         await secretStore.delete(deployment.id, 'deployment', request.params.key, request.body.expectedVersion);
         return reply.send({ success: true, message: 'Secret deleted (tombstone created)' });
@@ -469,7 +517,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
           type: 'object',
           required: ['key', 'value'],
           properties: {
-            key: { type: 'string', enum: ['netlify.siteId', 'netlify.authToken', 'installer.jwtSigningSecret'] },
+            key: { type: 'string', enum: [...GLOBAL_SECRET_KEY_VALUES] },
             value: { type: 'string', minLength: 1 },
             expectedVersion: { type: 'integer', minimum: 0 },
           },
@@ -497,11 +545,11 @@ export async function deploymentRoutes(app: FastifyInstance) {
       preHandler: requireSecretManagement,
     },
     async (request, reply) => {
-      const secretStore = createSecretStore();
+      const secretStore = await getSecretStore();
       try {
         const metadata = await secretStore.setGlobal(
           'global',
-          request.body.key as 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret',
+          request.body.key as (typeof GLOBAL_SECRET_KEY_VALUES)[number],
           request.body.value,
           request.body.expectedVersion ?? 0
         );
@@ -523,13 +571,13 @@ export async function deploymentRoutes(app: FastifyInstance) {
     '/secrets/global/:key',
     { preHandler: requireSecretManagement },
     async (request, reply) => {
-      const secretStore = createSecretStore();
-      const allowedKeys = ['netlify.siteId', 'netlify.authToken', 'installer.jwtSigningSecret'] as const;
+      const secretStore = await getSecretStore();
+      const allowedKeys = GLOBAL_SECRET_KEY_VALUES;
       if (!allowedKeys.includes(request.params.key as any)) {
         return reply.status(400).send({ success: false, error: 'Invalid global key' });
       }
 
-      const value = await secretStore.getGlobal('global', request.params.key as 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret');
+      const value = await secretStore.getGlobal('global', request.params.key as (typeof GLOBAL_SECRET_KEY_VALUES)[number]);
       if (value === null) {
         return reply.status(404).send({ success: false, error: 'Secret not found' });
       }
@@ -542,8 +590,8 @@ export async function deploymentRoutes(app: FastifyInstance) {
     '/secrets/global/:key/meta',
     { preHandler: requireSecretManagement },
     async (request, reply) => {
-      const secretStore = createSecretStore();
-      const allowedKeys = ['netlify.siteId', 'netlify.authToken', 'installer.jwtSigningSecret'] as const;
+      const secretStore = await getSecretStore();
+      const allowedKeys = GLOBAL_SECRET_KEY_VALUES;
       if (!allowedKeys.includes(request.params.key as any)) {
         return reply.status(400).send({ success: false, error: 'Invalid global key' });
       }
@@ -562,7 +610,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
     '/secrets/global',
     { preHandler: requireSecretManagement },
     async (_request, reply) => {
-      const secretStore = createSecretStore();
+      const secretStore = await getSecretStore();
       const list = await secretStore.listGlobal('global');
       return reply.send({ success: true, data: list });
     }
@@ -588,14 +636,14 @@ export async function deploymentRoutes(app: FastifyInstance) {
       preHandler: requireSecretManagement,
     },
     async (request, reply) => {
-      const secretStore = createSecretStore();
-      const allowedKeys = ['netlify.siteId', 'netlify.authToken', 'installer.jwtSigningSecret'] as const;
+      const secretStore = await getSecretStore();
+      const allowedKeys = GLOBAL_SECRET_KEY_VALUES;
       if (!allowedKeys.includes(request.params.key as any)) {
         return reply.status(400).send({ success: false, error: 'Invalid global key' });
       }
 
       try {
-        await secretStore.deleteGlobal('global', request.params.key as 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret', request.body.expectedVersion);
+        await secretStore.deleteGlobal('global', request.params.key as (typeof GLOBAL_SECRET_KEY_VALUES)[number], request.body.expectedVersion);
         return reply.send({ success: true, message: 'Global secret deleted (tombstone created)' });
       } catch (error) {
         if (error instanceof Error && error.name === 'SecretVersionConflictError') {

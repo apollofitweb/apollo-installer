@@ -7,7 +7,11 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { createHash, randomUUID } from 'crypto';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface MigrationFile {
   name: string;
@@ -80,14 +84,55 @@ export function validateBcryptHash(hash: string): boolean {
 }
 
 /**
- * Default paths relative to project root
+ * Resolve the migrations/seed source paths.
+ *
+ * Priority:
+ *  1. Environment variable (SUPABASE_MIGRATIONS_DIR / SUPABASE_SEED_SQL_PATH)
+ *  2. Sibling apollo-web repo (apps/api/prisma) - default workspace layout
+ *  3. <installer>/apps/api/prisma - when migrations are vendored in this repo
+ *  4. <installer>/prisma - when this repo owns the schema
+ *
+ * The previous hardcoded path assumed <workspace>/apps/api, which does not
+ * exist in the standard C:\POLLO3820\{apollo-installer,apollo-web} layout.
  */
-export const DEFAULT_MIGRATIONS_DIR = path.resolve(
-  __dirname,
-  '../../../../apps/api/prisma/migrations'
-);
+const INSTALLER_ROOT = path.resolve(__dirname, '../../..');
+const WORKSPACE_ROOT = path.resolve(INSTALLER_ROOT, '..');
 
-export const DEFAULT_SEED_SQL_PATH = path.resolve(
-  __dirname,
-  '../../../../apps/api/prisma/seed.sql'
-);
+function firstExisting(candidates: string[]): string {
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
+}
+
+export function resolveMigrationsDir(): string {
+  const fromEnv = process.env.SUPABASE_MIGRATIONS_DIR?.trim();
+  if (fromEnv) return path.resolve(fromEnv);
+
+  return firstExisting([
+    path.join(WORKSPACE_ROOT, 'apollo-web/apps/api/prisma/migrations'),
+    path.join(INSTALLER_ROOT, 'apps/api/prisma/migrations'),
+    path.join(INSTALLER_ROOT, 'prisma/migrations'),
+    path.join(WORKSPACE_ROOT, 'apps/api/prisma/migrations'),
+  ]);
+}
+
+export function resolveSeedSqlPath(): string {
+  const fromEnv = process.env.SUPABASE_SEED_SQL_PATH?.trim();
+  if (fromEnv) return path.resolve(fromEnv);
+
+  return firstExisting([
+    path.join(WORKSPACE_ROOT, 'apollo-web/apps/api/prisma/seed.sql'),
+    path.join(INSTALLER_ROOT, 'apps/api/prisma/seed.sql'),
+    path.join(INSTALLER_ROOT, 'prisma/seed.sql'),
+    path.join(WORKSPACE_ROOT, 'apps/api/prisma/seed.sql'),
+  ]);
+}
+
+/**
+ * Default paths (resolved at import time). Kept for backwards compatibility.
+ * Prefer resolveMigrationsDir()/resolveSeedSqlPath() when read at runtime.
+ */
+export const DEFAULT_MIGRATIONS_DIR = resolveMigrationsDir();
+
+export const DEFAULT_SEED_SQL_PATH = resolveSeedSqlPath();

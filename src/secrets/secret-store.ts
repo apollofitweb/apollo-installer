@@ -8,6 +8,18 @@ import { PrismaClient } from '@prisma/client';
 
 export type SecretScope = 'deployment' | 'global';
 
+/**
+ * Global-scoped keys are restricted to an explicit allowlist.
+ */
+export type GlobalSecretKey =
+  | 'netlify.siteId'
+  | 'netlify.authToken'
+  | 'installer.jwtSigningSecret'
+  | 'supabase.accessToken'
+  | 'render.apiToken'
+  | 'render.installerApiToken'
+  | 'render.ownerId';
+
 export interface SecretMetadata {
   version: number;
   updatedAt: string;
@@ -27,10 +39,10 @@ export interface SecretStore {
   delete(deploymentId: string, scope: 'deployment', key: string, expectedVersion: number): Promise<void>;
   list(deploymentId: string, scope: 'deployment'): Promise<Record<string, SecretMetadata>>;
 
-  // Global-scoped secrets (allowlist only: netlify.siteId, netlify.authToken, installer.jwtSigningSecret, supabase.accessToken)
-  getGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken'): Promise<string | null>;
-  setGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', value: string, expectedVersion?: number): Promise<SecretMetadata>;
-  deleteGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', expectedVersion: number): Promise<void>;
+  // Global-scoped secrets (allowlist only)
+  getGlobal(scope: 'global', key: GlobalSecretKey): Promise<string | null>;
+  setGlobal(scope: 'global', key: GlobalSecretKey, value: string, expectedVersion?: number): Promise<SecretMetadata>;
+  deleteGlobal(scope: 'global', key: GlobalSecretKey, expectedVersion: number): Promise<void>;
   listGlobal(scope: 'global'): Promise<Record<string, SecretMetadata>>;
 }
 
@@ -55,9 +67,12 @@ const GLOBAL_ALLOWLIST = new Set<string>([
   'netlify.authToken',
   'installer.jwtSigningSecret',
   'supabase.accessToken',
+  'render.apiToken',
+  'render.installerApiToken',
+  'render.ownerId',
 ]);
 
-function assertGlobalKey(key: string): asserts key is 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken' {
+function assertGlobalKey(key: string): asserts key is GlobalSecretKey {
   if (!GLOBAL_ALLOWLIST.has(key)) {
     throw new Error(`Global key not in allowlist: ${key}. Allowed: ${Array.from(GLOBAL_ALLOWLIST).join(', ')}`);
   }
@@ -190,14 +205,14 @@ export class InMemorySecretStore implements SecretStore {
   }
 
   // Global scope methods
-  async getGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken'): Promise<string | null> {
+  async getGlobal(scope: 'global', key: GlobalSecretKey): Promise<string | null> {
     assertGlobalKey(key);
     const entry = this.store.global[key];
     if (!entry || entry.metadata.deleted) return null;
     return entry.value;
   }
 
-  async setGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', value: string, expectedVersion = 0): Promise<SecretMetadata> {
+  async setGlobal(scope: 'global', key: GlobalSecretKey, value: string, expectedVersion = 0): Promise<SecretMetadata> {
     assertGlobalKey(key);
     const current = this.store.global[key];
 
@@ -246,7 +261,7 @@ export class InMemorySecretStore implements SecretStore {
     return this.store.global[key].metadata;
   }
 
-  async deleteGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', expectedVersion: number): Promise<void> {
+  async deleteGlobal(scope: 'global', key: GlobalSecretKey, expectedVersion: number): Promise<void> {
     assertGlobalKey(key);
     const current = this.store.global[key];
 
@@ -289,15 +304,53 @@ export class InMemorySecretStore implements SecretStore {
 }
 
 /**
+ * Shared in-memory store used in test/development when no master key is configured.
+ * A single instance is required so that secrets written by the API are visible
+ * to the deployment engine (and to later requests) within the same process.
+ */
+let sharedDevelopmentStore: InMemorySecretStore | null = null;
+
+/**
  * Factory para criar SecretStore apropriado (synchronous for tests)
  * Em testes: InMemorySecretStore
- * Em produção: use createDurableSecretStore (async)
+ * Em desenvolvimento: InMemorySecretStore (singleton)
+ * Em produção: use getSecretStore()/createDurableSecretStore (async)
  */
 export function createSecretStore(): SecretStore {
-  if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
-    return new InMemorySecretStore();
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST || process.env.NODE_ENV === 'development') {
+    if (!sharedDevelopmentStore) {
+      sharedDevelopmentStore = new InMemorySecretStore();
+    }
+    return sharedDevelopmentStore;
   }
   throw new Error('Use createDurableSecretStore() for production (requires PrismaClient and SECRETS_MASTER_KEY)');
+}
+
+/**
+ * Async factory used by the API and engine.
+ * Uses the encrypted DurableSecretStore whenever SECRETS_MASTER_KEY is set,
+ * otherwise falls back to the shared in-memory store (dev/test only).
+ */
+let sharedDurableStore: SecretStore | null = null;
+
+export async function getSecretStore(): Promise<SecretStore> {
+  if (sharedDurableStore) {
+    return sharedDurableStore;
+  }
+
+  if (process.env.SECRETS_MASTER_KEY) {
+    const { prisma } = await import('../persistence/prisma.js');
+    sharedDurableStore = await createDurableSecretStore(prisma);
+    return sharedDurableStore;
+  }
+
+  return createSecretStore();
+}
+
+/** Test helper: resets the shared development store. */
+export function resetDevelopmentSecretStore(): void {
+  sharedDevelopmentStore = null;
+  sharedDurableStore = null;
 }
 
 /**

@@ -44,9 +44,10 @@ apollo-installer/
 - Independente da interface admin e dos adaptadores
 
 ### 3. Adaptadores (`src/adapters/`)
-- **Interfaces apenas** em OS-002 (SupabaseAdapter, RenderAdapter, NetlifyAdapter)
+- **Adaptadores reais** para Supabase, Render e Netlify (produção)
 - **Mock implementations** para desenvolvimento/teste
 - Fábrica de adaptadores para injeção de dependência
+- Render: cria/adota web service por nome, configura env vars de forma idempotente e valida o deploy
 
 ### 4. Persistência (`src/persistence/`)
 - **Prisma Client** com SQLite (dev) / PostgreSQL (prod)
@@ -61,14 +62,16 @@ apollo-installer/
 - Placeholder em OS-002
 - Será dashboard React/Vue para acompanhamento visual
 
-## Fluxo de Implantação (6 etapas)
+## Fluxo de Implantação (5 etapas)
 
-1. **supabase_create** - Criar projeto Supabase + connection strings
+1. **supabase_create** - Criar/adotar projeto Supabase + connection strings
 2. **supabase_migrate_seed** - Aplicar migrations + seed admin
-3. **render_create** - Criar web service Render (Docker)
+3. **render_create** - Criar/adotar web service Render (Docker)
 4. **render_configure** - Configurar env vars (DATABASE_URL, JWT, CORS, etc.)
-5. **netlify_deploy** - Deploy frontend no site compartilhado Netlify
-6. **netlify_configure** - Adicionar domínio + VITE_API_URL + redirects
+5. **netlify_deploy** - Associar domínio da filial ao site compartilhado Netlify
+
+> Guia completo de instalação: ver [`GUIA-NOVA-INSTALACAO.md`](./GUIA-NOVA-INSTALACAO.md).
+> Guia de deploy na nuvem (Supabase + Render + Netlify): ver [`GUIA-CLOUD-DEPLOY.md`](./GUIA-CLOUD-DEPLOY.md).
 
 ## Comandos
 

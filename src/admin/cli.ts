@@ -16,7 +16,7 @@
  *   pnpm admin secret list-global
  *
  * Escopos: deployment | global
- * Chaves globais permitidas: netlify.siteId | netlify.authToken | installer.jwtSigningSecret
+ * Chaves globais permitidas: netlify.siteId | netlify.authToken | installer.jwtSigningSecret | supabase.accessToken | render.apiToken | render.installerApiToken | render.ownerId
  *
  * Segurança:
  *   - NÃO aceita --value (evita segredos em histórico de shell/processos)
@@ -225,11 +225,11 @@ secretCmd
   });
 
 // ===== GLOBAL-SCOPED SECRETS (ALLOWLIST ONLY) =====
-const GLOBAL_KEYS = ['netlify.siteId', 'netlify.authToken', 'installer.jwtSigningSecret'] as const;
+const GLOBAL_KEYS = ['netlify.siteId', 'netlify.authToken', 'installer.jwtSigningSecret', 'supabase.accessToken', 'render.apiToken', 'render.installerApiToken', 'render.ownerId'] as const;
 
 secretCmd
   .command('set-global <key>')
-  .description('Define um segredo global (allowlist: netlify.siteId, netlify.authToken, installer.jwtSigningSecret)')
+  .description('Define um segredo global (allowlist: netlify.siteId, netlify.authToken, installer.jwtSigningSecret, supabase.accessToken, render.apiToken, render.installerApiToken, render.ownerId)')
   .option('--stdin', 'Ler segredo do stdin (recomendado)')
   .option('--file <path>', 'Ler segredo de arquivo (permissões 600 obrigatórias)')
   .option('--expected-version <n>', 'Versão esperada para optimistic locking', '0')

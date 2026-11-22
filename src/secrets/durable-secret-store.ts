@@ -5,7 +5,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import type { SecretStore, SecretMetadata } from './secret-store.js';
+import type { SecretStore, SecretMetadata, GlobalSecretKey } from './secret-store.js';
 import { SecretVersionConflictError } from './secret-store.js';
 
 // Allowlist of global-scoped keys
@@ -14,9 +14,12 @@ const GLOBAL_ALLOWLIST = new Set<string>([
   'netlify.authToken',
   'installer.jwtSigningSecret',
   'supabase.accessToken',
+  'render.apiToken',
+  'render.installerApiToken',
+  'render.ownerId',
 ]);
 
-function assertGlobalKey(key: string): asserts key is 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken' {
+function assertGlobalKey(key: string): asserts key is GlobalSecretKey {
   if (!GLOBAL_ALLOWLIST.has(key)) {
     throw new Error(`Global key not in allowlist: ${key}. Allowed: ${Array.from(GLOBAL_ALLOWLIST).join(', ')}`);
   }
@@ -240,7 +243,7 @@ export class DurableSecretStore implements SecretStore {
   }
 
   // Global scope methods
-  async getGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken'): Promise<string | null> {
+  async getGlobal(scope: 'global', key: GlobalSecretKey): Promise<string | null> {
     await this.initialize();
     assertGlobalKey(key);
     const record = await this.prisma.globalSecret.findUnique({
@@ -259,7 +262,7 @@ export class DurableSecretStore implements SecretStore {
     return this.decrypt(payload, aad);
   }
 
-  async setGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', value: string, expectedVersion = 0): Promise<SecretMetadata> {
+  async setGlobal(scope: 'global', key: GlobalSecretKey, value: string, expectedVersion = 0): Promise<SecretMetadata> {
     await this.initialize();
     assertGlobalKey(key);
     const current = await this.prisma.globalSecret.findUnique({
@@ -318,7 +321,7 @@ export class DurableSecretStore implements SecretStore {
     return { version: 1, updatedAt: new Date().toISOString(), updatedBy: 'system', deleted: false };
   }
 
-  async deleteGlobal(scope: 'global', key: 'netlify.siteId' | 'netlify.authToken' | 'installer.jwtSigningSecret' | 'supabase.accessToken', expectedVersion: number): Promise<void> {
+  async deleteGlobal(scope: 'global', key: GlobalSecretKey, expectedVersion: number): Promise<void> {
     await this.initialize();
     assertGlobalKey(key);
     const current = await this.prisma.globalSecret.findUnique({

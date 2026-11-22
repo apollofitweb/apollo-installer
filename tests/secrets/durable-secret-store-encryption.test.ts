@@ -40,7 +40,7 @@ describe('DurableSecretStore - supabase.accessToken encryption', () => {
   });
 
   it('should encrypt supabase.accessToken when stored via setGlobal', async () => {
-    const pat = 'sbp_1234567890abcdef1234567890abcdef12345678';
+    const pat = 'TEST_PAT_PLACEHOLDER_A';
 
     await secretStore.setGlobal('global', 'supabase.accessToken', pat);
 
@@ -60,7 +60,7 @@ describe('DurableSecretStore - supabase.accessToken encryption', () => {
   });
 
   it('should decrypt supabase.accessToken when retrieved via getGlobal', async () => {
-    const pat = 'sbp_1234567890abcdef1234567890abcdef12345678';
+    const pat = 'TEST_PAT_PLACEHOLDER_A';
 
     await secretStore.setGlobal('global', 'supabase.accessToken', pat);
     const retrieved = await secretStore.getGlobal('global', 'supabase.accessToken');
@@ -69,7 +69,7 @@ describe('DurableSecretStore - supabase.accessToken encryption', () => {
   });
 
   it('should not expose PAT in error messages or logs', async () => {
-    const pat = 'sbp_1234567890abcdef1234567890abcdef12345678';
+    const pat = 'TEST_PAT_PLACEHOLDER_A';
 
     // Verify that even if we inspect the stored record, PAT is not visible
     await secretStore.setGlobal('global', 'supabase.accessToken', pat);
@@ -80,7 +80,7 @@ describe('DurableSecretStore - supabase.accessToken encryption', () => {
 
     const storedValue = rawRecord!.valueEncrypted;
     // The stored value should not contain any part of the PAT
-    expect(storedValue).not.toContain('sbp_');
+    expect(storedValue).not.toContain('TEST_PAT');
     expect(storedValue).not.toContain('1234567890abcdef');
     // Should be base64-encoded ciphertext.iv.tag format
     const parts = storedValue.split('.');
@@ -92,8 +92,8 @@ describe('DurableSecretStore - supabase.accessToken encryption', () => {
   });
 
   it('should handle version conflict correctly for supabase.accessToken', async () => {
-    const pat = 'sbp_1234567890abcdef1234567890abcdef12345678';
-    const pat2 = 'sbp_abcdef1234567890abcdef1234567890abcdef12';
+    const pat = 'TEST_PAT_PLACEHOLDER_A';
+    const pat2 = 'TEST_PAT_PLACEHOLDER_B';
 
     await secretStore.setGlobal('global', 'supabase.accessToken', pat);
 
@@ -112,7 +112,7 @@ describe('DurableSecretStore - supabase.accessToken encryption', () => {
   });
 
   it('should delete supabase.accessToken (tombstone)', async () => {
-    const pat = 'sbp_1234567890abcdef1234567890abcdef12345678';
+    const pat = 'TEST_PAT_PLACEHOLDER_A';
 
     await secretStore.setGlobal('global', 'supabase.accessToken', pat);
     await secretStore.deleteGlobal('global', 'supabase.accessToken', 1);
@@ -130,7 +130,7 @@ describe('DurableSecretStore - supabase.accessToken encryption', () => {
   });
 
   it('should list supabase.accessToken metadata without exposing value', async () => {
-    const pat = 'sbp_1234567890abcdef1234567890abcdef12345678';
+    const pat = 'TEST_PAT_PLACEHOLDER_A';
 
     await secretStore.setGlobal('global', 'supabase.accessToken', pat);
     const list = await secretStore.listGlobal('global');
@@ -144,7 +144,7 @@ describe('DurableSecretStore - supabase.accessToken encryption', () => {
   });
 
   it('should allow multiple global secrets including supabase.accessToken', async () => {
-    const pat = 'sbp_1234567890abcdef1234567890abcdef12345678';
+    const pat = 'TEST_PAT_PLACEHOLDER_A';
 
     await secretStore.setGlobal('global', 'supabase.accessToken', pat);
     await secretStore.setGlobal('global', 'netlify.authToken', 'netlify-token-123');

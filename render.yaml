@@ -1,0 +1,75 @@
+# Render Blueprint — Apollo Installer (API + Admin UI servidos juntos)
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Deploy: conecte este repositório no Render Dashboard → "New Blueprint Instance".
+# O Render detectará este arquivo na raiz.
+
+databases:
+  # Banco de dados do próprio instalador.
+  # (Opcional — você pode usar um Supabase PostgreSQL externo via DATABASE_URL.)
+  # Descomente para o Render provisionar o banco:
+  # - name: apollo-installer-db
+  #   databaseName: apollo_installer
+  #   user: apollo_installer
+  #   plan: starter
+  #   region: oregon
+
+services:
+  - type: web
+    name: apollo-installer-api
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    rootDir: .
+    buildCommand: |
+      pnpm install --frozen-lockfile=false &&
+      pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile &&
+      pnpm exec prisma generate --schema prisma/schema.production.prisma &&
+      pnpm build
+    startCommand: |
+      pnpm exec prisma db push --schema prisma/schema.production.prisma --skip-generate &&
+      pnpm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false # copiar do Supabase (pooler transaction) ou do banco Render
+      - key: DIRECT_URL
+        sync: false # copiar do Supabase (direct connection) — necessário para db push
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@apollofit.com.br
+      - key: ADMIN_PASSWORD_HASH
+        sync: false # bcrypt hash da senha admin
+      - key: SECRETS_MASTER_KEY
+        generateValue: true # AES-GCM base64 de 32 bytes (gerado pelo Render)
+      - key: ALLOWED_ORIGINS
+        value: https://apollo-installer.netlify.app
+      - key: PUBLIC_API_URL
+        value: https://apollo-installer-api.onrender.com
+      - key: APP_URL
+        value: https://apollo-installer.netlify.app
+      - key: LOG_LEVEL
+        value: info
+      # Tokens globais (também podem ser injetados via UI em Credenciais)
+      - key: SUPABASE_ACCESS_TOKEN
+        sync: false
+      - key: NETLIFY_AUTH_TOKEN
+        sync: false
+      - key: NETLIFY_SITE_ID
+        sync: false
+      - key: RENDER_API_TOKEN
+        sync: false
+      - key: RENDER_OWNER_ID
+        sync: false
+      - key: RENDER_REGION
+        value: oregon
+      - key: RENDER_PLAN
+        value: starter

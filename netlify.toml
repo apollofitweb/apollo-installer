@@ -1,0 +1,26 @@
+# Netlify — Apollo Installer Admin UI (React/Vite)
+# O build gera dist/admin, que é o mesmo diretório servido pela API no Render.
+# Assim, o UI pode rodar no Netlify e a API no Render, ou ambos juntos no Render.
+
+[build]
+  base = ""
+  command = "pnpm install --no-frozen-lockfile && pnpm --filter @apollo-installer/admin-ui build"
+  publish = "dist/admin"
+
+[build.environment]
+  NODE_VERSION = "20.19.5"
+  PNPM_VERSION = "9.15.9"
+
+# SPA fallback: todas as rotas (login, /deployments/:id) devem servir index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Segurança
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"

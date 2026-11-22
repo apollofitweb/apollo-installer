@@ -41,7 +41,7 @@ export interface UpdateStepData {
   status?: StepStatus;
   startedAt?: Date | null;
   completedAt?: Date | null;
-  errorMessage?: string;
+  errorMessage?: string | null;
   metadata?: JsonValue;
   expectedVersion?: number;
 }

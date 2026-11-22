@@ -104,13 +104,16 @@ export class DeploymentEngine {
       case 1: // supabase_create - needs dbPassword
         secrets.dbPassword = await this.secretStore.get(deploymentId, 'deployment', 'dbPassword') ?? '';
         break;
-      case 2: // supabase_migrate_seed - needs databaseUrl, directUrl (from step 1 metadata, not secrets)
+      case 2: // supabase_migrate_seed - databaseUrl/directUrl come from step 1 metadata
+        secrets.supabaseAdminPasswordHash = await this.secretStore.get(deploymentId, 'deployment', 'supabaseAdminPasswordHash') ?? '';
         break;
-      case 3: // render_create - no secrets needed
+      case 3: // render_create - needs Render API token (global)
+        secrets.renderApiToken = await this.secretStore.getGlobal('global', 'render.apiToken') ?? '';
         break;
       case 4: // render_configure - needs JWT secrets (allowedOrigins comes from operational config)
         secrets.jwtAccessSecret = await this.secretStore.get(deploymentId, 'deployment', 'jwtAccessSecret') ?? '';
         secrets.jwtRefreshSecret = await this.secretStore.get(deploymentId, 'deployment', 'jwtRefreshSecret') ?? '';
+        secrets.renderApiToken = await this.secretStore.getGlobal('global', 'render.apiToken') ?? '';
         break;
       case 5: // netlify_deploy - needs netlify auth token (global)
         secrets.netlifyAuthToken = await this.secretStore.getGlobal('global', 'netlify.authToken') ?? '';
@@ -125,30 +128,12 @@ export class DeploymentEngine {
     };
   }
 
-  private validateRequiredConfig(config: Record<string, unknown>, deploymentId: string): void {
-    const requiredFields = [
-      { field: 'repo', value: config.repo },
-      { field: 'branch', value: config.branch },
-      { field: 'dockerfilePath', value: config.dockerfilePath },
-      { field: 'supabaseRegion', value: config.supabaseRegion },
-      { field: 'publicApiUrl', value: config.publicApiUrl },
-      { field: 'renderServiceId', value: config.renderServiceId },
-      { field: 'netlifySiteId', value: config.netlifySiteId },
-    ];
-
-    for (const { field, value } of requiredFields) {
-      if (!value || (typeof value === 'string' && value.trim() === '')) {
-        throw new DeploymentError(`Configuração obrigatória ausente: ${field}`, deploymentId, 0);
-      }
-    }
-  }
-
   private validateStepConfig(config: Record<string, unknown>, secrets: Record<string, string>, stepName: string, deploymentId: string): void {
-    // Only validate INPUT fields (provided by user or previous step outputs already in config).
-    // Output fields from previous steps (databaseUrl, directUrl, renderServiceId, netlifySiteId, etc.)
-    // are propagated at runtime and should not be validated upfront.
+    // Validate only the inputs each step actually needs. Outputs produced by
+    // previous steps (projectRef, databaseUrl, renderServiceId, netlifySiteId...)
+    // are propagated at runtime and must NOT be required before they exist.
     const stepRequirements: Record<string, string[]> = {
-      supabase_create: ['slug', 'supabaseRegion'],
+      supabase_create: ['slug'],
       supabase_migrate_seed: [], // databaseUrl, directUrl come from supabase_create output
       render_create: ['slug', 'repo', 'branch', 'dockerfilePath'],
       render_configure: ['renderServiceId', 'publicApiUrl'], // databaseUrl, directUrl come from supabase_migrate_seed output
@@ -257,13 +242,17 @@ export class DeploymentEngine {
       );
     }
 
-    // Merge provided config with persisted config
-    const mergedConfig = { ...deployment.config, ...config } as Record<string, unknown>;
+    // Merge deployment identity + persisted config with the provided runtime config
+    const mergedConfig = {
+      slug: deployment.slug,
+      name: deployment.name,
+      domain: deployment.domain ?? undefined,
+      ...deployment.config,
+      ...config,
+    } as Record<string, unknown>;
 
-    // Validate required config is present
-    if (deployment.config) {
-      this.validateRequiredConfig(deployment.config as unknown as Record<string, unknown>, deploymentId);
-    }
+    // Validate input config per-step (not upfront), because IDs produced by
+    // previous steps only exist while the deployment is running.
 
     // Atomically acquire deployment for execution
     const acquired = await deploymentRepository.tryAcquireForExecution(
@@ -316,6 +305,7 @@ export class DeploymentEngine {
       await deploymentRepository.updateStep(deploymentId, stepNumber, {
         status: 'RUNNING',
         startedAt: new Date(),
+        errorMessage: null,
         expectedVersion,
       });
       await deploymentRepository.update(deploymentId, { currentStep: stepNumber });
@@ -340,6 +330,7 @@ export class DeploymentEngine {
         await deploymentRepository.updateStep(deploymentId, stepNumber, {
           status: 'COMPLETED',
           completedAt: new Date(),
+          errorMessage: null,
           metadata: sanitizedData as any,
           expectedVersion: expectedVersion + 1, // version incremented by RUNNING update
         });
@@ -347,10 +338,26 @@ export class DeploymentEngine {
         // Propagate step outputs to config for subsequent steps
         if (result.data && typeof result.data === 'object') {
           Object.assign(config, result.data);
-          // Flatten connectionStrings if present (from supabase_create)
           const data = result.data as Record<string, unknown>;
+
+          // Flatten connectionStrings if present (from supabase_create)
           if (data.connectionStrings && typeof data.connectionStrings === 'object') {
             Object.assign(config, data.connectionStrings);
+          }
+
+          // Map adapter output names to the config keys expected by later steps.
+          // Without this, step 2 cannot see the projectRef created by step 1.
+          if (typeof data.projectRef === 'string' && data.projectRef) {
+            config.supabaseProjectRef = data.projectRef;
+          }
+          if (typeof data.serviceId === 'string' && data.serviceId) {
+            config.renderServiceId = data.serviceId;
+          }
+          if (typeof data.serviceUrl === 'string' && data.serviceUrl) {
+            config.renderServiceUrl = data.serviceUrl;
+          }
+          if (typeof data.siteId === 'string' && data.siteId) {
+            config.netlifySiteId = data.siteId;
           }
         }
 
@@ -420,7 +427,7 @@ export class DeploymentEngine {
 
         // Validate supabaseProjectRef if provided - must be EXACTLY 20 chars, only [a-z0-9]
         const rawProjectRef = config.supabaseProjectRef;
-        if (rawProjectRef !== undefined) {
+        if (rawProjectRef !== undefined && rawProjectRef !== null) {
           if (typeof rawProjectRef !== 'string' || rawProjectRef.trim() === '') {
             return { success: false, error: 'supabaseProjectRef informado mas inválido (vazio ou apenas espaços)' };
           }
@@ -574,14 +581,15 @@ export class DeploymentEngine {
       throw new DeploymentError('Deployment config não encontrada para retomada', deploymentId, 0);
     }
 
-    // Validate required config is present (operational config only)
-    this.validateRequiredConfig(deployment.config as unknown as Record<string, unknown>, deploymentId);
+    // Validate input config per-step (not upfront), because IDs produced by
+    // previous steps are recovered from step metadata below.
 
-    // Read database URLs from step 1 metadata (supabase_create)
+    // Read database URLs and the Supabase project ref from step 1 metadata
     const step1 = deployment.steps?.find(s => s.stepNumber === 1);
     const step1Metadata = step1?.metadata as any;
     const databaseUrl = step1Metadata?.connectionStrings?.databaseUrl;
     const directUrl = step1Metadata?.connectionStrings?.directUrl;
+    const supabaseProjectRef = step1Metadata?.projectRef;
 
     // Read render service ID from step 3 metadata (render_create)
     const step3 = deployment.steps?.find(s => s.stepNumber === 3);
@@ -594,7 +602,9 @@ export class DeploymentEngine {
       repo: deployment.config.repo,
       branch: deployment.config.branch,
       dockerfilePath: deployment.config.dockerfilePath,
-      supabaseRegion: deployment.config.supabaseRegion,
+      supabaseRegion: deployment.config.supabaseRegion ?? 'sa-east-1',
+      // projectRef/metadata outputs from step 1
+      supabaseProjectRef: supabaseProjectRef || deployment.config.supabaseProjectRef || undefined,
       // databaseUrl, directUrl from step 1 metadata
       databaseUrl,
       directUrl,
@@ -647,14 +657,16 @@ export function createDeploymentEngine(secretStore?: ReturnType<typeof createSec
  * Uses DurableSecretStore for persistent encrypted secret storage.
  * Retrieves Supabase PAT from SecretStore via getGlobalSecret('supabase.accessToken').
  * Retrieves Netlify auth token and site ID from SecretStore via getGlobalSecret.
+ * Retrieves Render API token (and optional owner ID) from SecretStore via getGlobalSecret.
+ * netlify.siteId should be the shared Matrix site ID in Netlify.
  *
  * @param prisma - PrismaClient instance for DurableSecretStore
- * @returns DeploymentEngine with real Supabase and Netlify adapters
+ * @returns DeploymentEngine with real Supabase, Render and Netlify adapters
  *
  * Requires SECRETS_MASTER_KEY environment variable for encryption.
  * Requires supabase.accessToken secret to be provisioned in SecretStore (global scope).
  * Requires netlify.authToken and netlify.siteId secrets to be provisioned in SecretStore (global scope).
- * netlify.siteId should be the shared Matrix site ID in Netlify.
+ * Requires render.apiToken secret (or RENDER_API_TOKEN env var) for production.
  */
 export async function createProductionDeploymentEngine(
   prisma: PrismaClient
@@ -662,7 +674,7 @@ export async function createProductionDeploymentEngine(
   // Create durable secret store for production
   const secretStore = await createDurableSecretStore(prisma);
 
-  // Create adapter factory with real Supabase and Netlify adapters
+  // Create adapter factory with real Supabase, Render and Netlify adapters
   // Secrets are retrieved from SecretStore at initialization, never exposed in logs
   const adapterFactory = createAdapterFactory({
     useRealAdapters: true,
@@ -670,6 +682,18 @@ export async function createProductionDeploymentEngine(
       getGlobalSecret: async (key) => {
         if (key === 'supabase.accessToken') {
           return secretStore.getGlobal('global', 'supabase.accessToken');
+        }
+        return null;
+      },
+    },
+    renderConfig: {
+      apiToken: process.env.RENDER_API_TOKEN,
+      ownerId: process.env.RENDER_OWNER_ID,
+      region: process.env.RENDER_REGION,
+      plan: process.env.RENDER_PLAN,
+      getGlobalSecret: async (key) => {
+        if (key === 'render.apiToken' || key === 'render.ownerId') {
+          return secretStore.getGlobal('global', key);
         }
         return null;
       },

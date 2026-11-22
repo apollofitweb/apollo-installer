@@ -39,6 +39,12 @@ export const env = {
   jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
   jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
 
+  // Administrative access (admin UI login)
+  adminEmail: process.env.ADMIN_EMAIL || 'admin@apollofit.com.br',
+  adminPassword: process.env.ADMIN_PASSWORD,
+  adminPasswordHash: process.env.ADMIN_PASSWORD_HASH,
+  adminSessionTtl: process.env.ADMIN_SESSION_TTL || '12h',
+
   corsOrigin: process.env.ALLOWED_ORIGINS || 'http://localhost:5174,http://localhost:3000',
 
   publicApiUrl: process.env.PUBLIC_API_URL || `http://localhost:${parseIntSafe(process.env.PORT, 3334)}`,
@@ -60,5 +66,8 @@ if (isProduction) {
   }
   if (env.corsOrigin === '*' || env.corsOrigin.trim() === '') {
     throw new Error('ALLOWED_ORIGINS must be explicit list in production');
+  }
+  if (!env.adminPassword && !env.adminPasswordHash) {
+    throw new Error('ADMIN_PASSWORD or ADMIN_PASSWORD_HASH is required in production');
   }
 }

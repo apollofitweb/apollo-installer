@@ -1,0 +1,51 @@
+OS-006 concluída — Apollo Installer executável localmente
+Ajustei o que impedia o funcionamento, mantendo a arquitetura (React + backend + Deployment Engine + adapters + SecretStore). Nenhum commit/push foi feito.
+Endereços locais
+Serviço	Endereço	Status
+Interface Admin (dev)	http://localhost:5174	no ar
+API (dev)	http://localhost:3334	no ar (/health ok)
+Login	http://localhost:5174/login	ok
+Produção validada	http://localhost:3335 (build servido pelo backend)	validada e encerrada após o teste
+Credenciais de acesso estão no .env local (não commitado) e não são expostas pela interface.
+O que foi corrigido
+- Entrypoint do backend no Windows (src/api/index.ts) e servir dist/admin em produção sem quebrar SPA fallback/assets.
+- Autenticação admin mínima (/api/auth/login, /api/auth/me, JWT 12h, RBAC admin) e proteção das rotas.
+- Persistência real de segredos: DurableSecretStore (AES-GCM) com SECRETS_MASTER_KEY, incluindo supabase.accessToken.
+- Remoção da revelação de valores de segredos na tela de Credenciais (somente metadados/edição).
+- Formulário de configuração operacional no detalhe, tornando "Iniciar" funcional.
+- Correções de execução do pipeline: slug, supabaseProjectRef, limpeza de errorMessage, crash .startsWith().
+- Corrigida a validação de SMTP ao habilitar o bloco (bug real encontrado pelos testes).
+- Testes da UI corrigidos (causa raiz: React duplicado no Vitest/Windows).
+Resultados dos testes
+Suíte	Resultado
+Backend	12 arquivos, 285/285 testes passando
+Admin UI	16 arquivos, 139/139 testes passando
+Build de produção	ok — backend TS + dist/admin (app 63,3 kB, vendor 223,4 kB, CSS 14,5 kB)
+Validação funcional em produção (porta 3335, build real)
+- GET / → 200 com <div id="root">
+- GET /login → 200 (SPA)
+- GET /deployments/1 → 200 (SPA fallback)
+- GET /assets/index-BnodeyGx.js → 200, application/javascript
+- POST /api/auth/login → 200 com token
+- GET /api/auth/me → 200 (admin)
+- GET /api/deployments autenticado → 200; sem token → 401
+- Login com senha errada → 401
+Persistência de segredos após restart
+Gravei um segredo de teste, reiniciei o backend de produção e confirmei:
+- metadados continuaram com version: 1;
+- o valor foi decriptado corretamente após o restart;
+- segredo de teste removido no final.
+Problemas reais bloqueantes
+Nenhum. O sistema inicia, a tela abre no navegador, a API responde e o build de produção serve a interface corretamente. Permanecem apenas itens intencionais: nenhum provisionamento real em Supabase/Render/Netlify foi executado e a validação de produção na porta 3335 foi encerrada após os testes (as instâncias de desenvolvimento em 5174/3334 continuam rodando).
+Build · DeepSeek V4.1 Flash Free · 1h 52m · 45.0 tok/s
+INFORME AS CREDENCIAIS DE LOGOIN
++Thought · 1.3s
+$ Select-String -Path .env -Pattern '^ADMIN_(EMAIL|PASSWORD)=' | ForEach-Object { $_.Line }
+ADMIN_EMAIL=admin@apollofit.com.br
+ADMIN_PASSWORD="ApolloInstaller#2026"
+Credenciais de login da interface admin (definidas no .env local):
+- E-mail: admin@apollofit.com.br
+- Senha: ApolloInstaller#2026
+Acesse em http://localhost:5174/login (interface em dev). Ou, no build de produção servido pelo backend, em http://localhost:<PORT>/login.
+Observação: as aspas no .env fazem parte da sintaxe e não da senha — a senha é ApolloInstaller#2026.
+Build · DeepSeek V4.1 Flash Free · 10.6s · 38.7 tok/s
