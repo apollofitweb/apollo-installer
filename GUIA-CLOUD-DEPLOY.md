@@ -5,10 +5,13 @@ Este guia registra a arquitetura e o **estado real** do deploy do próprio Apoll
 | Serviço | Função | Recurso |
 |---------|--------|---------|
 | **Supabase** | Banco PostgreSQL | Projeto `ogupqfkkgcczncgvuund`, região `sa-east-1` |
-| **Render** | API (Fastify/Node) | `srv-dc15somtlv9c73b5jgeg` → https://apollo-installer-api.onrender.com |
-| **Netlify** | UI (React/Vite) | Site `40f99039-10c1-4736-bb37-a19fa9bafd9f` → https://apollo-installer.netlify.app |
+| **Render** | API + UI (Fastify/Node) | `srv-dc15somtlv9c73b5jgeg` → https://apollo-installer-api.onrender.com |
+| **Netlify** | UI (legado/fallback) | Site `40f99039-10c1-4736-bb37-a19fa9bafd9f` → https://apollo-installer.netlify.app |
 
-> **Arquitetura:** API no Render + UI no Netlify, com `VITE_API_URL` apontando para a API e CORS configurado via `ALLOWED_ORIGINS`.
+> **Arquitetura final:** API **e** UI são servidas juntas pelo Render. O `dist/admin` é
+> servido por `@fastify/static` e o frontend chama `/api` de forma relativa
+> (`VITE_API_URL` vazio no build do Render). Isso elimina a dependência do Netlify,
+> cuja conta Free não permite desabilitar o SSO global (ver seção 7.1).
 
 ---
 
@@ -35,10 +38,12 @@ Este guia registra a arquitetura e o **estado real** do deploy do próprio Apoll
 | Login na API | ✅ OK | `admin@apollofit.com.br` / `ApolloInstaller#2026` |
 | Leitura de segredos na nuvem | ✅ OK | `netlify.siteId`, `render.installerApiToken` etc. |
 | Dados migrados | ✅ OK | deployments=1, steps=5, configs=1, secrets=5, global_secrets=6 |
+| UI no Render | ✅ Funcionando | https://apollo-installer-api.onrender.com/ → HTTP 200 (título `Apollo Installer - Admin`) |
 | UI Netlify (deploy zip) | ✅ Publicado | Deploy `6b02691a0d88a7b0c6924170`, `state=ready`, restore HTTP 200 |
-| UI Netlify (acesso público) | ⏳ Bloqueado | HTTP 401 → redirect `app.netlify.com/edge-access` (SSO global da conta) |
+| UI Netlify (acesso público) | ❌ Bloqueado | HTTP 401 → `edge-access` (SSO global da conta Free — sem toggle no painel) |
 | Build automático Netlify | ⏳ Falhando | `Build script returned non-zero exit code: 2` |
-| Domínios customizados | ⏳ Pendente | DNS ainda não configurado; domínio da UI está em conflito |
+| Domínios no Render | ✅ Criados | `apollo-installer.apollofit.com.br` e `api.apollo-installer.apollofit.com.br` |
+| DNS | ⏳ Pendente | Usuário precisa criar os dois CNAMEs apontando para `apollo-installer-api.onrender.com` |
 
 ---
 
@@ -131,39 +136,44 @@ $resp.Headers['Access-Control-Allow-Origin']
 
 | Domínio | Onde configurar | Destino |
 |---------|-----------------|---------|
-| `apollo-installer.apollofit.com.br` | Netlify → Domain management | CNAME → `apollo-installer.netlify.app` |
-| `api.apollo-installer.apollofit.com.br` | Render → Custom Domains (já criado) | CNAME → `apollo-installer-api.onrender.com` |
+| `apollo-installer.apollofit.com.br` | Render → Custom Domains (✅ já criado) | CNAME → `apollo-installer-api.onrender.com` |
+| `api.apollo-installer.apollofit.com.br` | Render → Custom Domains (✅ já criado) | CNAME → `apollo-installer-api.onrender.com` |
+
+> **Nota:** o Netlify não é mais usado para os domínios finais. O domínio
+> `apollo-installer.apollofit.com.br` estava em conflito com um site órfão
+> (`2719fb20-1859-4a83-ad9c-0105985e165e`), mas no Render não há conflito.
 
 Depois que o DNS propagar:
 
-1. Atualizar `ALLOWED_ORIGINS` no Render com a URL final da UI.
-2. Atualizar `VITE_API_URL` no Netlify com a URL final da API e fazer rebuild.
-3. Atualizar `APP_URL` e `PUBLIC_API_URL` no Render.
+1. Atualizar `APP_URL` no Render para `https://apollo-installer.apollofit.com.br`.
+2. Atualizar `PUBLIC_API_URL` no Render para `https://api.apollo-installer.apollofit.com.br`.
+3. `ALLOWED_ORIGINS` já contém ambos os domínios — conferir apenas.
 4. Validar login e CORS nos domínios finais.
 
-> ⚠️ **Conflito conhecido:** a API do Netlify recusa atribuir
-> `apollo-installer.apollofit.com.br` ao site do instalador (422: domínio pertence ao
-> site `2719fb20-1859-4a83-ad9c-0105985e165e`, que retorna 404). É necessário liberar
-> o domínio no painel ou escolher um nome alternativo.
+> Não é necessário mexer em `VITE_API_URL`: a UI servida pelo Render usa `/api` relativo.
 
 ---
 
 ## 7. Bloqueios e próximos passos
 
-### 7.1 Acesso público da UI (ação no painel Netlify)
+### 7.1 SSO do Netlify — não há toggle na conta Free
 
-A conta `apollofitweb@gmail.com` tem `site_sso_login=True` com
-`site_sso_login_context=all`. Isso redirece qualquer visitante para
-`app.netlify.com/edge-access`, resultando em HTTP 401 mesmo com deploy publicado.
+A conta `apollofitweb@gmail.com` tem `site_sso_login=true` com
+`site_sso_login_context=all`, o que redireciona qualquer visitante para
+`app.netlify.com/edge-access` (HTTP 401).
 
-A API retorna `422 Account is not eligible to update global access controls` ao tentar
-desabilitar via `PATCH /accounts/{id}`. **Só é possível alterar no painel:**
+**Não existe opção "Require SSO" no painel** porque o plano é `credit-free` e a
+capacidade `global_access_controls` está marcada como `included: false` na conta.
+Consequências confirmadas:
 
-1. Login em https://app.netlify.com com `apollofitweb@gmail.com`.
-2. Abrir **Team settings → Security** (ou **Access & security**).
-3. Em **Site access / SSO**, alterar de "Require SSO for all sites" para
-   "Public" / desmarcar a exigência de login para o site `apollo-installer`.
-4. Salvar e testar: https://apollo-installer.netlify.app → esperado HTTP 200.
+- `PATCH /accounts/{id}` com `site_sso_login=false` → `422 Account is not eligible to update global access controls`
+- `PUT /accounts/{id}` com o objeto completo → o mesmo 422
+- `PATCH /sites/{id}` com `site_access`, `site_sso_login`, `secure_site` etc. → HTTP 200, mas nenhum campo é alterado
+
+**Solução adotada:** a UI passou a ser servida pelo próprio Render, junto com a API,
+em https://apollo-installer-api.onrender.com/ (HTTP 200, validado). O Netlify fica
+apenas como fallback histórico. Se no futuro quiser voltar a usar o Netlify, será
+necessário fazer upgrade para um plano que inclua `global_access_controls`.
 
 ### 7.2 Build automático do Netlify
 
@@ -177,12 +187,12 @@ Enquanto isso, o deploy zip manual (`6b02691a0d88a7b0c6924170`) permanece public
 
 ### 7.3 Checklist
 
-1. [ ] Desabilitar SSO/Edge Access no painel Netlify e validar UI HTTP 200.
-2. [ ] Fazer push das configurações sincronizadas e acompanhar o build do Netlify.
-3. [ ] Liberar ou substituir o domínio `apollo-installer.apollofit.com.br`.
-4. [ ] Configurar DNS dos dois domínios.
-5. [ ] Atualizar `ALLOWED_ORIGINS`, `VITE_API_URL`, `APP_URL`, `PUBLIC_API_URL` para os domínios finais.
-6. [ ] Validar login e CORS nos domínios finais.
+1. [x] Confirmar que a UI funciona no Render (https://apollo-installer-api.onrender.com/).
+2. [x] Criar os dois domínios customizados no Render (feito via API).
+3. [ ] Configurar DNS: dois CNAMEs → `apollo-installer-api.onrender.com`.
+4. [ ] Após propagação, atualizar `APP_URL` e `PUBLIC_API_URL` no Render.
+5. [ ] Validar `https://apollo-installer.apollofit.com.br` e `https://api.apollo-installer.apollofit.com.br/health`.
+6. [ ] (Opcional) Corrigir ou abandonar o build automático do Netlify — não impacta a produção.
 
 ---
 
@@ -190,8 +200,8 @@ Enquanto isso, o deploy zip manual (`6b02691a0d88a7b0c6924170`) permanece public
 
 | Sintoma | Causa | Solução |
 |---------|-------|---------|
-| UI 401 com `edge-access` | SSO global da conta Netlify | Painel → Team settings → Security (item 7.1) |
-| `Build script returned non-zero exit code: 2` | Build command no Netlify | Ver item 7.2; fallback: deploy zip |
+| UI 401 com `edge-access` | Conta Netlify Free sem `global_access_controls` | Usar a UI no Render (item 7.1) |
+| `Build script returned non-zero exit code: 2` | Build command no Netlify | Não impacta produção; ver item 7.2 |
 | `P1001 Can't reach database` | Host direct 5432 | Usar pooler 6543 com `sslmode=require` |
 | `db push` trava no pooler | Transação não suportada | Aplicar `database/schema.sql` via Management API |
 | Segredos ilegíveis na nuvem | `SECRETS_MASTER_KEY` diferente | Replicar a chave do `.env` no Render |

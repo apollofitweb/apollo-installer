@@ -53,9 +53,9 @@ services:
       - key: ALLOWED_ORIGINS
         value: https://apollo-installer.netlify.app,https://apollo-installer.apollofit.com.br
       - key: PUBLIC_API_URL
-        value: https://apollo-installer-api.onrender.com
+        value: https://api.apollo-installer.apollofit.com.br
       - key: APP_URL
-        value: https://apollo-installer.netlify.app
+        value: https://apollo-installer.apollofit.com.br
       - key: LOG_LEVEL
         value: info
       # Tokens globais também podem ser injetados pela UI em Credenciais.
