@@ -1,14 +1,14 @@
 # Guia de Deploy na Nuvem — Apollo Installer
 
-Este guia explica como hospedar o **próprio Apollo Installer** (API + interface admin) na nuvem usando:
+Este guia registra a arquitetura e o **estado real** do deploy do próprio Apollo Installer.
 
-| Serviço | Função | O que hospeda |
-|---------|--------|---------------|
-| **Supabase** | Banco PostgreSQL | Dados de deployments, steps, configs e segredos criptografados |
-| **Render** | API + UI (ou só API) | Fastify (Node) em `NODE_ENV=production`, servindo `dist/admin` |
-| **Netlify** | UI (opcional) | React/Vite (build de `src/admin`) |
+| Serviço | Função | Recurso |
+|---------|--------|---------|
+| **Supabase** | Banco PostgreSQL | Projeto `ogupqfkkgcczncgvuund`, região `sa-east-1` |
+| **Render** | API (Fastify/Node) | `srv-dc15somtlv9c73b5jgeg` → https://apollo-installer-api.onrender.com |
+| **Netlify** | UI (React/Vite) | Site `40f99039-10c1-4736-bb37-a19fa9bafd9f` → https://apollo-installer.netlify.app |
 
-> **Arquitetura recomendada:** API no **Render** + UI no **Netlify**, com `VITE_API_URL` apontando para a API e CORS configurado. Alternativamente, Render serve tudo (API + UI) numa única URL — mais simples.
+> **Arquitetura:** API no Render + UI no Netlify, com `VITE_API_URL` apontando para a API e CORS configurado via `ALLOWED_ORIGINS`.
 
 ---
 
@@ -16,234 +16,195 @@ Este guia explica como hospedar o **próprio Apollo Installer** (API + interface
 
 | Serviço | Conta | Observação |
 |---------|-------|------------|
-| **GitHub** | Conta existente `apollofitweb` | Onde já estão todos os projetos armazenados |
-| **Netlify** | Conta existente | Onde estão os projetos atuais |
-| **Supabase** | **Conta nova** | Exclusiva do instalador |
-| **Render** | **Conta nova** | Exclusiva do instalador |
+| **GitHub** | Conta existente `apollofitweb` | Repo `apollofitweb/apollo-installer` |
+| **Netlify** | Conta existente `apollofitweb@gmail.com` | account id `6acb8fddfc7dc07061d5118f` |
+| **Supabase** | Conta nova | Organização `Apollo Installer` (`aisgnpywlxlbfmlzocrp`) |
+| **Render** | Conta nova | `admin.apolloinstaller@gmail.com`, owner `tea-dc152o2jnfac73fnmrpg` |
 
-> A conta Render atual (`GK-TOP-FITNESS`, owner `tea-dbuva6on74is739hura0`) continua responsável pelo deployment `apollo-gk-top-fitness` e **não será alterada**. O token atual deve ser preservado. O deploy do instalador usará um token da conta nova.
+> A conta Render antiga (`GK-TOP-FITNESS`, owner `tea-dbuva6on74is739hura0`) continua responsável pelo deployment `apollo-gk-top-fitness`. O token antigo segue em `render.apiToken`; o token da conta nova está em `render.installerApiToken`. **Não misturar.**
 
 ---
 
-## 1. Status atual do ambiente (diagnóstico executado)
+## 1. Status atual (validado em 22/11/2026)
 
 | Item | Estado | Detalhe |
 |------|--------|---------|
-| Token Render (conta antiga) | ✅ Válido (HTTP 200) | Owner `tea-dbuva6on74is739hura0` (GK-TOP-FITNESS) — preservado para a loja GK |
-| Token Render (conta nova) | ✅ Válido (HTTP 200) | Salvo em `render.installerApiToken` |
-| Token Supabase | ✅ Válido (HTTP 200) | Salvo em `supabase.accessToken` |
-| Token Netlify | ✅ Válido (HTTP 200) | Salvo em `netlify.authToken` — conta `apollofitweb@gmail.com` |
-| Repo GitHub `apollofitweb/apollo-installer` | ✅ Publicado | Commit `dfb7926` na branch `main` |
-| Remote Git local | ✅ Configurado | `origin` → `https://github.com/apollofitweb/apollo-installer.git` |
-| `DATABASE_URL` / `DIRECT_URL` | ✅ Obtidos do Supabase | Pooler `aws-0-sa-east-1.pooler.supabase.com:6543` (+ `pgbouncer=true`) |
-| Docker local | ❌ Indisponível | Não é necessário — Render usa runtime Node |
-
-**Conclusão:** deploy executado. Supabase `ogupqfkkgcczncgvuund`, Render `srv-dc15somtlv9c73b5jgeg` (plano `free`) e Netlify `40f99039-10c1-4736-bb37-a19fa9bafd9f` (`https://apollo-installer.netlify.app`). Falta configurar domínios customizados e validar a aplicação.
+| Repo GitHub | ✅ Publicado | `apollofitweb/apollo-installer`, branch `main` |
+| Supabase | ✅ Ativo | `ACTIVE_HEALTHY`, schema + dados aplicados |
+| Render | ✅ Live | Deploy `dep-dc16cfafngtc73eohrmg`, `/health` HTTP 200 `database=connected` |
+| Login na API | ✅ OK | `admin@apollofit.com.br` / `ApolloInstaller#2026` |
+| Leitura de segredos na nuvem | ✅ OK | `netlify.siteId`, `render.installerApiToken` etc. |
+| Dados migrados | ✅ OK | deployments=1, steps=5, configs=1, secrets=5, global_secrets=6 |
+| UI Netlify (deploy zip) | ✅ Publicado | Deploy `6b02691a0d88a7b0c6924170`, `state=ready`, restore HTTP 200 |
+| UI Netlify (acesso público) | ⏳ Bloqueado | HTTP 401 → redirect `app.netlify.com/edge-access` (SSO global da conta) |
+| Build automático Netlify | ⏳ Falhando | `Build script returned non-zero exit code: 2` |
+| Domínios customizados | ⏳ Pendente | DNS ainda não configurado; domínio da UI está em conflito |
 
 ---
 
-## 2. Arquivos criados para o deploy
+## 2. Arquivos de deploy versionados
 
 | Arquivo | Finalidade |
 |---------|------------|
-| `render.yaml` | Blueprint do Render (serviço web Node, env vars, health check) |
-| `netlify.toml` | Build da UI no Netlify (publish `dist/admin`, redirects SPA) |
-| `prisma/schema.production.prisma` | Schema PostgreSQL (Supabase) com `directUrl` |
-| `src/api/plugins/cors.ts` | Plugin CORS (origem explícita de `ALLOWED_ORIGINS`) |
-| `src/admin/.env.production.example` | Exemplo de `VITE_API_URL` para a UI |
-| `scripts/deploy-cloud.ps1` | Script que cria os recursos via APIs (quando tokens válidos) |
-| `.dockerignore` | Exclusões (caso queira usar Docker depois) |
-| `package.json` | Novos scripts `db:generate:prod`, `db:push:prod` |
+| `render.yaml` | Blueprint do Render — `startCommand=pnpm start`, sem `db push` |
+| `netlify.toml` | Build da UI (publish `dist/admin`, redirects SPA) |
+| `prisma/schema.production.prisma` | Schema PostgreSQL usado para gerar o SQL |
+| `database/schema.sql` | DDL aplicado no Supabase via Management API |
+| `database/seed.sql` | Dados migrados do SQLite |
+| `database/README.md` | Como aplicar o SQL e cuidados com `SECRETS_MASTER_KEY` |
+| `scripts/deploy-cloud.ps1` | Automação de criação dos recursos via APIs |
+| `src/api/plugins/cors.ts` | CORS com origens explícitas de `ALLOWED_ORIGINS` |
 
 ---
 
-## 3. Pré-requisitos (o que falta)
+## 3. Detalhes críticos da configuração
 
-### 3.1 Tokens reais
+### 3.1 Banco de dados
 
-Gere e injete no cofre do instalador (ou defina no `.env` do Render):
+- **Usar sempre o transaction pooler**: `aws-0-sa-east-1.pooler.supabase.com:6543`,
+  usuário `postgres.ogupqfkkgcczncgvuund`, com `?pgbouncer=true&sslmode=require`.
+- O host direct `db.ogupqfkkgcczncgvuund.supabase.co:5432` está **inalcançável** (P1001).
+  por isso `DATABASE_URL` e `DIRECT_URL` apontam para o pooler.
+- O schema **não** é aplicado no start. Foi aplicado via
+  `POST /v1/projects/{ref}/database/query` da Management API (ver `database/README.md`).
+- `prisma db push` trava no pooler transacional — não usar.
 
-```powershell
-# Supabase PAT: https://supabase.com/dashboard/account/tokens
-"SEU_PAT_SUPABASE" | pnpm admin secret set-global supabase.accessToken --stdin
+### 3.2 Render
 
-# Netlify Personal Access Token: https://app.netlify.com/user/applications#personal-access-tokens
-"SEU_TOKEN_NETLIFY" | pnpm admin secret set-global netlify.authToken --stdin
-```
+- Runtime `node`, plano `free` (`starter` retornou 402 — exige cartão).
+- `startCommand = pnpm start`.
+- `SECRETS_MASTER_KEY` é **a mesma** do `.env` local, necessária para ler os segredos
+  criptografados migrados. Gerar uma chave nova quebra a leitura.
+- `PUT /services/{id}/env-vars` **substitui todas** as variáveis. Ao alterar uma,
+  reenviar o conjunto completo de 14 chaves.
 
-> O token da conta Render antiga (`render.apiToken`) já está válido e deve ser **preservado** — ele controla a loja GK.
-> Para o instalador, use um token da **conta nova**, em uma chave separada:
-> `"SEU_TOKEN_RENDER_NOVO" | pnpm admin secret set-global render.installerApiToken --stdin`
+### 3.3 Netlify
 
-### 3.2 Repositório GitHub
-
-Render e Netlify fazem deploy a partir de um repositório. Crie o repo `apollofitweb/apollo-installer` e faça push:
-
-```powershell
-git remote add origin https://github.com/apollofitweb/apollo-installer.git
-git branch -M main
-git push -u origin main
-```
-
-> **Importante:** o repo precisa conter todo o projeto (não apenas `src/admin`), pois a API no Render roda `pnpm build` (que compila backend + UI) e `prisma db push`.
-
----
-
-## 4. Deploy automático (após pré-requisitos)
-
-```powershell
-.\scripts\deploy-cloud.ps1
-```
-
-O script:
-1. Valida os três tokens (Render, Supabase, Netlify).
-2. Cria projeto Supabase PostgreSQL em `sa-east-1` e obtém connection strings.
-3. Cria web service no Render com toutes as env vars (JWT, `SECRETS_MASTER_KEY`, `ALLOWED_ORIGINS`, etc.).
-4. Cria site no Netlify apontando para `dist/admin`.
-
-Para testar sem criar nada:
-
-```powershell
-.\scripts\deploy-cloud.ps1 -WhatIf
-```
-
-Para pular um serviço: `-SkipSupabase`, `-SkipRender` ou `-SkipNetlify`.
+- Env vars são configuradas em `/api/v1/accounts/{account_id}/env?site_id={site_id}`.
+- Deploy por upload: `POST /sites/{site_id}/deploys` com `Content-Type: application/zip`
+  (multipart gera deploy preso em `state=new`). Publicar com
+  `POST /sites/{site_id}/deploys/{deploy_id}/restore`.
+- O deploy zip é o fallback enquanto o build automático não é estabilizado.
 
 ---
 
-## 5. Deploy manual (alternativo)
+## 4. Deploy automático
 
-### 5.1 Supabase (banco)
+```powershell
+.\scripts\deploy-cloud.ps1           # cria recursos (idempotente parcial)
+.\scripts\deploy-cloud.ps1 -WhatIf   # só valida tokens
+```
 
-1. Crie projeto em https://database.new → nome `apollo-installer`, região `sa-east-1`.
-2. Em **Project Settings → Database**, copie:
-   - **Connection string → Transaction pooler** → `DATABASE_URL`
-   - **Connection string → Direct connection** → `DIRECT_URL`
-3. A aplicação aplica o schema automaticamente no start (`prisma db push --schema prisma/schema.production.prisma`).
+Flags: `-SkipSupabase`, `-SkipRender`, `-SkipNetlify`, `-SecretsMasterKey <chave>`.
 
-### 5.2 Render (API + UI)
+O script lê os tokens dos segredos globais da API local (ou cloud), valida os três
+tokens e cria projeto Supabase, serviço Render e site Netlify com as configurações
+corrigidas desta seção.
 
-1. https://dashboard.render.com → **New → Web Service** → conecte o repo.
-2. Configuração:
-   - **Name:** `apollo-installer-api`
-   - **Runtime:** Node
-   - **Branch:** `main`
-   - **Build Command:**
-     ```
-     pnpm install --no-frozen-lockfile && pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile && pnpm exec prisma generate --schema prisma/schema.production.prisma && pnpm build
-     ```
-   - **Start Command:**
-     ```
-     pnpm exec prisma db push --schema prisma/schema.production.prisma --skip-generate && pnpm start
-     ```
-   - **Health Check Path:** `/health`
-3. Env vars (veja `render.yaml` para a lista completa). Marque como *Secret* as sensíveis.
-4. Após o deploy, anote a URL: `https://apollo-installer-api.onrender.com`.
+---
 
-> O Render define automaticamente `PORT=10000`. O código já lê `process.env.PORT`.
+## 5. Verificação pós-deploy
 
-### 5.3 Netlify (UI)
+```powershell
+# API
+Invoke-WebRequest 'https://apollo-installer-api.onrender.com/health'
+# 200 {"status":"ok","database":"connected"}
 
-1. https://app.netlify.com → **Add new site → Import an existing project** → GitHub → `apollo-installer`.
-2. Configuração de build (já em `netlify.toml`):
-   - **Build command:** `pnpm install --no-frozen-lockfile && pnpm --filter @apollo-installer/admin-ui build`
-   - **Publish directory:** `dist/admin`
-3. Em **Site settings → Environment variables**, adicione:
-   - `VITE_API_URL = https://apollo-installer-api.onrender.com/api`
-4. **Important:** configure `ALLOWED_ORIGINS` no Render incluindo a URL do Netlify:
-   ```
-   ALLOWED_ORIGINS=https://apollo-installer.netlify.app,https://apollo-installer.apollofit.com.br
-   ```
-5. O `netlify.toml` já contém o redirect SPA (`/* → /index.html`) para rotas como `/login`.
+# Login
+$body = @{ email='admin@apollofit.com.br'; password='ApolloInstaller#2026' } | ConvertTo-Json
+$login = Invoke-RestMethod 'https://apollo-installer-api.onrender.com/api/auth/login' `
+  -Method Post -Body $body -ContentType 'application/json'
+$h = @{ Authorization = "Bearer $($login.data.token)" }
+Invoke-RestMethod 'https://apollo-installer-api.onrender.com/api/deployments' -Headers $h
+
+# CORS
+$req = [System.Net.HttpWebRequest]::Create('https://apollo-installer-api.onrender.com/api/deployments')
+$req.Headers.Add('Origin', 'https://apollo-installer.netlify.app')
+$req.Method = 'OPTIONS'
+$resp = $req.GetResponse()
+$resp.Headers['Access-Control-Allow-Origin']
+```
 
 ---
 
 ## 6. Domínios personalizados
 
-| Domínio | Onde configurar |
-|---------|-----------------|
-| `apollo-installer.apollofit.com.br` | Netlify → Domain management (CNAME para `<site>.netlify.app`) |
-| `api.apollo-installer.apollofit.com.br` | Render → Custom Domains (CNAME para `<service>.onrender.com`) |
+| Domínio | Onde configurar | Destino |
+|---------|-----------------|---------|
+| `apollo-installer.apollofit.com.br` | Netlify → Domain management | CNAME → `apollo-installer.netlify.app` |
+| `api.apollo-installer.apollofit.com.br` | Render → Custom Domains (já criado) | CNAME → `apollo-installer-api.onrender.com` |
 
-Depois de adicionar os domínios:
+Depois que o DNS propagar:
 
-- Atualize `ALLOWED_ORIGINS` no Render com a URL final da UI.
-- Atualize `VITE_API_URL` no Netlify com a URL final da API e faça rebuild.
-- Atualize `APP_URL` e `PUBLIC_API_URL` no Render.
+1. Atualizar `ALLOWED_ORIGINS` no Render com a URL final da UI.
+2. Atualizar `VITE_API_URL` no Netlify com a URL final da API e fazer rebuild.
+3. Atualizar `APP_URL` e `PUBLIC_API_URL` no Render.
+4. Validar login e CORS nos domínios finais.
 
----
-
-## 7. Migração de dados locais → nuvem
-
-O banco local (`dev.db`, SQLite) tem 1 deployment (`apollo-gk-top-fitness`) e segredos globais. Para migrar:
-
-1. Aplique o schema no Supabase (`prisma db push --schema prisma/schema.production.prisma`).
-2. Use a API da instância na nuvem para re-injetar segredos globais:
-   ```powershell
-   $login = Invoke-RestMethod -Uri 'https://api.apollo-installer.apollofit.com.br/api/auth/login' -Method Post `
-     -Body (@{ email='admin@apollofit.com.br'; password='SUA_SENHA' } | ConvertTo-Json) -ContentType 'application/json'
-   $h = @{ Authorization = "Bearer $($login.data.token)" }
-   # Para cada chave global — inclua AMBAS as chaves Render:
-   $body = @{ key='render.apiToken'; value='TOKEN_CONTA_ANTIGA_GK'; expectedVersion=0 } | ConvertTo-Json
-   Invoke-RestMethod -Uri 'https://api.apollo-installer.apollofit.com.br/api/secrets/global' -Method Post -Headers $h -Body $body -ContentType 'application/json'
-   $body = @{ key='render.installerApiToken'; value='TOKEN_CONTA_NOVA'; expectedVersion=0 } | ConvertTo-Json
-   Invoke-RestMethod -Uri 'https://api.apollo-installer.apollofit.com.br/api/secrets/global' -Method Post -Headers $h -Body $body -ContentType 'application/json'
-   ```
-3. Recrie o deployment GK (ou exporte/importe via Prisma — o schema é idêntico).
-
-> **Segurança:** nunca commite `.env`. O `SECRETS_MASTER_KEY` da nuvem deve ser diferente do local.
+> ⚠️ **Conflito conhecido:** a API do Netlify recusa atribuir
+> `apollo-installer.apollofit.com.br` ao site do instalador (422: domínio pertence ao
+> site `2719fb20-1859-4a83-ad9c-0105985e165e`, que retorna 404). É necessário liberar
+> o domínio no painel ou escolher um nome alternativo.
 
 ---
 
-## 8. Verificação pós-deploy
+## 7. Bloqueios e próximos passos
 
-```powershell
-# API (Render)
-Invoke-WebRequest 'https://apollo-installer-api.onrender.com/health'
-# esperado: 200 {"status":"ok","database":"connected"}
+### 7.1 Acesso público da UI (ação no painel Netlify)
 
-# UI (Netlify)
-Invoke-WebRequest 'https://apollo-installer.netlify.app/login'
-# esperado: 200 (SPA)
+A conta `apollofitweb@gmail.com` tem `site_sso_login=True` com
+`site_sso_login_context=all`. Isso redirece qualquer visitante para
+`app.netlify.com/edge-access`, resultando em HTTP 401 mesmo com deploy publicado.
 
-# CORS (teste a partir da origem da UI)
-$req = [System.Net.HttpWebRequest]::Create('https://apollo-installer-api.onrender.com/api/deployments')
-$req.Headers.Add('Origin', 'https://apollo-installer.netlify.app')
-$req.Method = 'OPTIONS'
-$resp = $req.GetResponse()
-"Access-Control-Allow-Origin: $($resp.Headers['Access-Control-Allow-Origin'])"
-```
+A API retorna `422 Account is not eligible to update global access controls` ao tentar
+desabilitar via `PATCH /accounts/{id}`. **Só é possível alterar no painel:**
+
+1. Login em https://app.netlify.com com `apollofitweb@gmail.com`.
+2. Abrir **Team settings → Security** (ou **Access & security**).
+3. Em **Site access / SSO**, alterar de "Require SSO for all sites" para
+   "Public" / desmarcar a exigência de login para o site `apollo-installer`.
+4. Salvar e testar: https://apollo-installer.netlify.app → esperado HTTP 200.
+
+### 7.2 Build automático do Netlify
+
+Os deploys via Git falham com exit code 2; os logs não estão disponíveis via API
+(os endpoints de log da API pública são apenas para escrita). O build local passa.
+O `netlify.toml` foi simplificado (sem `npm i -g`, sem `tsc` no Netlify).
+Se ainda falhar após o próximo push, copiar o log do painel:
+**Deploys → deploy falhado → Deploy log**.
+
+Enquanto isso, o deploy zip manual (`6b02691a0d88a7b0c6924170`) permanece publicado.
+
+### 7.3 Checklist
+
+1. [ ] Desabilitar SSO/Edge Access no painel Netlify e validar UI HTTP 200.
+2. [ ] Fazer push das configurações sincronizadas e acompanhar o build do Netlify.
+3. [ ] Liberar ou substituir o domínio `apollo-installer.apollofit.com.br`.
+4. [ ] Configurar DNS dos dois domínios.
+5. [ ] Atualizar `ALLOWED_ORIGINS`, `VITE_API_URL`, `APP_URL`, `PUBLIC_API_URL` para os domínios finais.
+6. [ ] Validar login e CORS nos domínios finais.
 
 ---
 
-## 9. Troubleshooting
+## 8. Troubleshooting
 
 | Sintoma | Causa | Solução |
 |---------|-------|---------|
-| `CORS blocked` no navegador | `ALLOWED_ORIGINS` não inclui a URL da UI | Adicionar origem exata (sem barra final) no Render |
-| `401` na UI | `VITE_API_URL` errado | Deve terminar em `/api` |
-| `P1001 Can't reach database` | `DATABASE_URL` inválida | Usar connection string do pooler do Supabase |
-| `Missing required env var` | Env var não definida no Render | Verificar lista do `render.yaml` |
-| Build falha no Render | `pnpm --filter` sem workspace | Verificar se `src/admin/package.json` foi commitado |
-| SPA 404 no Netlify | Redirect ausente | `netlify.toml` já tem `/* → /index.html` |
-| Prisma client desatualizado | Schema de produção não gerado | `pnpm db:generate:prod` no build |
+| UI 401 com `edge-access` | SSO global da conta Netlify | Painel → Team settings → Security (item 7.1) |
+| `Build script returned non-zero exit code: 2` | Build command no Netlify | Ver item 7.2; fallback: deploy zip |
+| `P1001 Can't reach database` | Host direct 5432 | Usar pooler 6543 com `sslmode=require` |
+| `db push` trava no pooler | Transação não suportada | Aplicar `database/schema.sql` via Management API |
+| Segredos ilegíveis na nuvem | `SECRETS_MASTER_KEY` diferente | Replicar a chave do `.env` no Render |
+| `422 must be unique` no domínio | Domínio em outro site Netlify | Item 7.3 |
+| CORS bloqueado | Origem ausente em `ALLOWED_ORIGINS` | Adicionar origem exata (sem barra final) |
+| Render env vars perdidas | `PUT` substitui todas | Reenviar conjunto completo de 14 chaves |
 
 ---
 
-## 10. Custos
+## 9. Custos
 
-| Serviço | Plano sugerido | Observação |
-|---------|----------------|------------|
-| Supabase | Free | Suficiente para começar (500 MB) |
+| Serviço | Plano | Observação |
+|---------|-------|------------|
+| Supabase | Free | 500 MB, suficiente para começar |
 | Render | Free | Adormece após inatividade; `starter` exige cartão |
 | Netlify | Free | 100 GB bandwidth/mês |
-
----
-
-## 11. Próximos passos imediatos
-
-1. ✅ Arquivos de deploy criados e validados (`tsc`, 285 testes, build).
-2. ✅ Tokens Supabase/Render/Netlify injetados e repo `apollofitweb/apollo-installer` publicado.
-3. ✅ Deploy executado (Supabase, Render `free`, Netlify).
-4. ⏳ Configurar domínios personalizados e migrar segredos/dados para o banco na nuvem.
-5. ⏳ Validar health, CORS e login na nuvem.

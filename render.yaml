@@ -1,18 +1,17 @@
-# Render Blueprint — Apollo Installer (API + Admin UI servidos juntos)
+# Render Blueprint — Apollo Installer (API)
 # Docs: https://render.com/docs/blueprint-spec
 #
 # Deploy: conecte este repositório no Render Dashboard → "New Blueprint Instance".
 # O Render detectará este arquivo na raiz.
-
-databases:
-  # Banco de dados do próprio instalador.
-  # (Opcional — você pode usar um Supabase PostgreSQL externo via DATABASE_URL.)
-  # Descomente para o Render provisionar o banco:
-  # - name: apollo-installer-db
-  #   databaseName: apollo_installer
-  #   user: apollo_installer
-  #   plan: starter
-  #   region: oregon
+#
+# IMPORTANTE (estado real do deploy):
+#   - O schema PostgreSQL é aplicado via SQL na Management API do Supabase
+#     (arquivos database/schema.sql e database/seed.sql). NÃO usar `prisma db push`
+#     no startCommand: o pooler transacional (6543) não suporta as consultas do
+#     `db push` e o host direct (5432) não é alcançável a partir do Render.
+#   - O `startCommand` é apenas `pnpm start`.
+#   - `SECRETS_MASTER_KEY` precisa ser a MESMA chave usada ao criptografar os
+#     segredos migrados do SQLite. Por isso é `sync: false` (não gerar valor novo).
 
 services:
   - type: web
@@ -25,22 +24,21 @@ services:
     buildCommand: |
       npm i -g pnpm@9.15.9 &&
       pnpm install --no-frozen-lockfile --prod=false &&
-      pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile --prod=false &&
       pnpm exec prisma generate --schema prisma/schema.production.prisma &&
       pnpm build
-    startCommand: |
-      pnpm exec prisma db push --schema prisma/schema.production.prisma --skip-generate &&
-      pnpm start
+    startCommand: pnpm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
+      # Supabase: Transaction Pooler (porta 6543) com sslmode=require.
+      # Usar a MESMA string em DATABASE_URL e DIRECT_URL.
       - key: DATABASE_URL
-        sync: false # copiar do Supabase (pooler transaction) ou do banco Render
+        sync: false
       - key: DIRECT_URL
-        sync: false # copiar do Supabase (direct connection) — necessário para db push
+        sync: false
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
@@ -48,9 +46,10 @@ services:
       - key: ADMIN_EMAIL
         value: admin@apollofit.com.br
       - key: ADMIN_PASSWORD_HASH
-        sync: false # bcrypt hash da senha admin
+        sync: false
+      # Mesma chave do .env local — necessária para ler os segredos migrados.
       - key: SECRETS_MASTER_KEY
-        generateValue: true # AES-GCM base64 de 32 bytes (gerado pelo Render)
+        sync: false
       - key: ALLOWED_ORIGINS
         value: https://apollo-installer.netlify.app,https://apollo-installer.apollofit.com.br
       - key: PUBLIC_API_URL
@@ -59,17 +58,8 @@ services:
         value: https://apollo-installer.netlify.app
       - key: LOG_LEVEL
         value: info
-      # Tokens globais (também podem ser injetados via UI em Credenciais)
-      - key: SUPABASE_ACCESS_TOKEN
-        sync: false
-      - key: NETLIFY_AUTH_TOKEN
-        sync: false
-      - key: NETLIFY_SITE_ID
-        sync: false
-      - key: RENDER_API_TOKEN
-        sync: false
-      - key: RENDER_OWNER_ID
-        sync: false
+      # Tokens globais também podem ser injetados pela UI em Credenciais.
+      # A chave render.apiToken (conta antiga GK) deve ser preservada.
       - key: RENDER_REGION
         value: oregon
       - key: RENDER_PLAN

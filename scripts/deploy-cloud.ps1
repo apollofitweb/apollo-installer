@@ -29,6 +29,7 @@ param(
     [string]$Region = 'sa-east-1',
     [string]$Repo = 'apollofitweb/apollo-installer',
     [string]$Branch = 'main',
+    [string]$SecretsMasterKey = '',
     [switch]$SkipSupabase,
     [switch]$SkipRender,
     [switch]$SkipNetlify,
@@ -36,6 +37,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# A chave mestra precisa ser a MESMA usada ao criptografar os segredos migrados.
+# Se não for informada, tenta ler do .env local.
+if (-not $SecretsMasterKey -and (Test-Path .env)) {
+    $match = Select-String -Path .env -Pattern '^SECRETS_MASTER_KEY=(.*)$' | Select-Object -First 1
+    if ($match) { $SecretsMasterKey = $match.Matches.Groups[1].Value.Trim() }
+}
 
 function Write-Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 function Write-Ok($msg) { Write-Host "  [OK] $msg" -ForegroundColor Green }
@@ -104,9 +112,11 @@ if (-not $SkipSupabase -and $supabaseOk) {
             if ($p.status -eq 'ACTIVE') { Write-Ok 'Projeto ACTIVE'; break }
         }
         $poolerCfg = (Invoke-RestMethod -Uri "https://api.supabase.com/v1/projects/$ref/config/database/pooler" -Headers @{ Authorization = "Bearer $($secrets['supabase.accessToken'])" } -TimeoutSec 20)[0]
-        $dbUrl = "postgresql://$($poolerCfg.db_user):$dbPassword@$($poolerCfg.db_host):$($poolerCfg.db_port)/$($poolerCfg.db_name)?pgbouncer=true"
-        $directUrl = "postgresql://postgres:$dbPassword@db.$ref.supabase.co:5432/postgres"
-        Write-Ok "Connection strings obtidas"
+        # Usar SEMPRE o transaction pooler (6543). O host direct (5432) fica
+        # inalcançável a partir do Render nesta conta Supabase.
+        $dbUrl = "postgresql://$($poolerCfg.db_user):$dbPassword@$($poolerCfg.db_host):$($poolerCfg.db_port)/$($poolerCfg.db_name)?pgbouncer=true&sslmode=require"
+        $directUrl = $dbUrl
+        Write-Ok "Connection strings obtidas (transaction pooler)"
     }
 } elseif ($SkipSupabase) {
     Write-Warn 'Supabase pulado (-SkipSupabase)'
@@ -121,10 +131,10 @@ if (-not $SkipRender -and $renderOk) {
     $ownerId = if ($owners[0].owner) { $owners[0].owner.id } else { $owners[0].id }
     Write-Ok "Owner: $ownerId"
 
-    # Gerar secrets
+    # Gerar secrets (a chave mestra é reaproveitada para não quebrar os segredos migrados)
     $jwtAccess = -join ((48..57) + (97..102) | Get-Random -Count 64 | ForEach-Object { [char]$_ })
     $jwtRefresh = -join ((48..57) + (97..102) | Get-Random -Count 64 | ForEach-Object { [char]$_ })
-    $masterKey = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 }))
+    $masterKey = if ($SecretsMasterKey) { $SecretsMasterKey } else { [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 })) }
 
     $envVars = @(
         @{ key = 'NODE_ENV'; value = 'production' },
@@ -157,8 +167,10 @@ if (-not $SkipRender -and $renderOk) {
             region = 'oregon'
             healthCheckPath = '/health'
             envSpecificDetails = @{
-                buildCommand = 'npm i -g pnpm@9.15.9 && pnpm install --no-frozen-lockfile --prod=false && pnpm --filter @apollo-installer/admin-ui install --no-frozen-lockfile --prod=false && pnpm exec prisma generate --schema prisma/schema.production.prisma && pnpm build'
-                startCommand = 'pnpm exec prisma db push --schema prisma/schema.production.prisma --skip-generate && pnpm start'
+                buildCommand = 'npm i -g pnpm@9.15.9 && pnpm install --no-frozen-lockfile --prod=false && pnpm exec prisma generate --schema prisma/schema.production.prisma && pnpm build'
+                # O schema é aplicado via SQL na Management API do Supabase
+                # (database/schema.sql e database/seed.sql). Nunca usar `prisma db push` aqui.
+                startCommand = 'pnpm start'
             }
         }
     } | ConvertTo-Json -Depth 10
@@ -189,7 +201,7 @@ if (-not $SkipNetlify -and $netlifyOk) {
             repo = $Repo
             branch = $Branch
             build = @{
-                command = 'pnpm install --no-frozen-lockfile && pnpm --filter @apollo-installer/admin-ui build'
+                command = 'pnpm install --no-frozen-lockfile --prod=false && pnpm --filter @apollo-installer/admin-ui exec vite build'
                 publish = 'dist/admin'
             }
         }
