@@ -1,10 +1,16 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { ApiResponse, Deployment, CreateDeploymentInput, UpdateConfigInput, DeploymentSecretMetadata, GlobalSecretMetadata, SecretValue, PaginatedResponse } from '../types';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+// VITE_API_URL pode vir sem o sufixo /api (configurado no Netlify) ou já com ele.
+// Normalizamos para que todas as chamadas de negócio usem /api, enquanto /health
+// continua na raiz da API (é onde o Render o registra).
+const RAW_API_URL = String((import.meta as any).env?.VITE_API_URL || '/api').replace(/\/$/, '');
+const API_ORIGIN = RAW_API_URL.replace(/\/api$/, '');
+const API_BASE_URL = `${API_ORIGIN}/api`;
 
 class ApiClient {
   private client: AxiosInstance;
+  private healthClient: AxiosInstance;
   private token: string | null = null;
 
   constructor() {
@@ -15,6 +21,13 @@ class ApiClient {
       },
       // O Render (plano free) pode levar ~30-60s para acordar após inatividade.
       // 30s causava "timeout of 30000ms exceeded" no primeiro login do dia.
+      timeout: 120000,
+    });
+
+    // /health não tem prefixo /api no backend. Manter um cliente separado evita
+    // que o warm-up do Render caia no SPA fallback e retorne index.html.
+    this.healthClient = axios.create({
+      baseURL: API_ORIGIN || undefined,
       timeout: 120000,
     });
 
@@ -257,7 +270,7 @@ class ApiClient {
 
   // Health
   async healthCheck(): Promise<{ status: string }> {
-    const response = await this.client.get<ApiResponse<{ status: string }>>('/health');
+    const response = await this.healthClient.get<ApiResponse<{ status: string }>>('/health');
     return response.data.data || { status: 'unknown' };
   }
 }
