@@ -234,6 +234,7 @@ não é mais usado.
 | `db push` trava no pooler | Transação não suportada | Aplicar `database/schema.sql` via Management API |
 | Segredos ilegíveis na nuvem | `SECRETS_MASTER_KEY` diferente | Replicar a chave do `.env` no Render |
 | `422 must be unique` no domínio | Domínio em outro site Netlify | Item 7.3 |
+| `Network Error` no login (preflight OK, POST sem header) | Plugin CORS encapsulado | `corsPlugin` embrulhado com `fastify-plugin` — headers agora também no POST |
 | CORS bloqueado | Origem ausente em `ALLOWED_ORIGINS` | Adicionar origem exata (sem barra final) |
 | Render env vars perdidas | `PUT` substitui todas | Reenviar conjunto completo de 14 chaves |
 

@@ -7,6 +7,7 @@
  */
 
 import cors from '@fastify/cors';
+import fp from 'fastify-plugin';
 import type { FastifyInstance } from 'fastify';
 import { env } from '../../config/env.js';
 
@@ -22,11 +23,15 @@ export function getAllowedOrigins(): string[] {
   return parseAllowedOrigins(env.corsOrigin);
 }
 
-export async function corsPlugin(app: FastifyInstance): Promise<void> {
+// fastify-plugin é necessário para que o hook do @fastify/cors seja registrado no
+// escopo raiz. Sem ele, o plugin fica encapsulado: o preflight (OPTIONS) era
+// respondido com os headers corretos, mas as requisições reais (POST/GET) não
+// recebiam Access-Control-Allow-Origin e o navegador reportava "Network Error".
+export const corsPlugin = fp(async (app: FastifyInstance): Promise<void> => {
   await app.register(cors, {
     origin: getAllowedOrigins(),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
-}
+});
